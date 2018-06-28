@@ -15,36 +15,46 @@ class Network:
     def eval(self):
         with self.graph.as_default():
             self.det_x = tf.placeholder(dtype=tf.float32, shape=(None, 64*4), name="det_inputs")
-            self.img_x = tf.placeholder(dtype=tf.float32, shape=(None, 300, 300, 3), name="img_inputs")
+            self.img_x = tf.placeholder(dtype=tf.float32, shape=(None,300, 300, 3), name="img_inputs")
+            self.img_x_nchw = tf.transpose(self.img_x, perm=[0,3,1,2])
+            
             self.track_y = tf.placeholder(dtype=tf.float32, shape=(None, 64*6), name='track_label')
             self.keep_prob = tf.placeholder(dtype=tf.float32, name='keep_prob')
 
-            logits = Model(self.det_x,self.img_x, self.is_training, self.keep_prob).logits
+            logits = Model(self.det_x, self.img_x_nchw, self.is_training, self.keep_prob).logits
             #self._calc_accuracy(logits, self.y)
 
             with tf.name_scope('Cost'):
-                cross_entropy = slim.losses.sparse_softmax_cross_entropy(logits=logits, labels=self.y,
-                                                                         scope='cross_entropy')
-                tf.summary.scalar("cross_entropy", cross_entropy)
+                delta = self.track_y  - logits[1]
+                loss1 = tf.reduce_mean(
+                            tf.reduce_sum(tf.square(delta))) 
+                            
+                delta2 = self.track_y  - logits[0]
+                loss2 = tf.reduce_mean(
+                            tf.reduce_sum(tf.square(delta2)))
+                            
+                total_loss = loss1 + loss2
+                            
+                #cross_entropy = (self.track_y - logits[1]) * (self.track_y - logits[1])
+                tf.summary.scalar("total_loss", total_loss)
                 
             with tf.name_scope('Optimizer'):
                 self.global_step = tf.Variable(0, name='global_step', trainable=False)
                 #optimizer = tf.train.GradientDescentOptimizer(FLAGS.lrate)
-                 optimizer = tf.train.AdamOptimizer(FLAGS.lrate)
+                optimizer = tf.train.AdamOptimizer(FLAGS.lrate)
                 # optimizer = tf.train.MomentumOptimizer(FLAGS.lrate, 0.9, use_nesterov=True)
                 # optimizer = tf.train.RMSPropOptimizer(FLAGS.lrate)
-                self.train_step = slim.learning.create_train_op(cross_entropy, optimizer, self.global_step,
+                self.train_step = slim.learning.create_train_op(total_loss, optimizer, self.global_step,
                                                                 aggregation_method=tf.AggregationMethod.EXPERIMENTAL_TREE)
             self.summary_op = tf.summary.merge_all()
             self.saver = tf.train.Saver()
-
-    def _calc_accuracy(self, logits, y):
-        with tf.name_scope('Accuracy'):
-            prediction = tf.cast(tf.arg_max(logits, dimension=1), tf.int32)
-            self.accuracy = tf.contrib.metrics.accuracy(labels=y, predictions=prediction)
-            tf.summary.scalar("accuracy", self.accuracy)
-
-
+    
+    def loss_function(self, tensor_x, label_y):
+        
+        
+        
+        return 
+    
     @staticmethod
     def print_model():
         def get_nb_params_shape(shape):

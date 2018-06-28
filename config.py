@@ -4,7 +4,7 @@ import os
 FLAGS = tf.app.flags.FLAGS
 
 
-tf.app.flags.DEFINE_integer('epoch', 1, 'Number of epoch')
+tf.app.flags.DEFINE_integer('max_steps', 1000, 'Number of max_steps')
 tf.app.flags.DEFINE_integer('esize', 50, 'Size of examples')
 tf.app.flags.DEFINE_integer('estep', 20, 'Length of step for grouping frames into examples')
 tf.app.flags.DEFINE_integer('height', 240, 'Height of frames')

@@ -30,17 +30,17 @@ class Learning:
 
     def _train_step(self, sess, run_options=None, run_metadata=None):
         if run_options is not None:
-            _, summary, global_step, accuracy = sess.run(
-                [self.net.train_step, self.net.summary_op, self.net.global_step, self.net.accuracy],
+            _, summary, global_step = sess.run(
+                [self.net.train_step, self.net.summary_op, self.net.global_step],
                 feed_dict=self.next_example(), options=run_options, run_metadata=run_metadata)
             self.train_writer.add_run_metadata(run_metadata, 'step{}'.format(global_step), global_step)
             print('Adding run metadata for', global_step)
         else:
-            _, summary, global_step, accuracy = sess.run(
-                [self.net.train_step, self.net.summary_op, self.net.global_step, self.net.accuracy],
+            _, summary, global_step = sess.run(
+                [self.net.train_step, self.net.summary_op, self.net.global_step],
                 feed_dict=self.next_example())
         self.train_writer.add_summary(summary, global_step)
-        return global_step, accuracy
+        return global_step
 
     def _test_step(self, sess):
         # TODO: New reader for test on all videos
@@ -84,29 +84,28 @@ class Learning:
         self.keep_prob = 0.75
         self.is_training = True
         self.net = Network(self.is_training)
-        self.ten_accuracy = []
-        self.epoch_accuracy = []
         self.train_writer = tf.summary.FileWriter(self.train_logs_path, graph=self.net.graph)
+        
+        with tf.device("/gpu:0"):
+            config = tf.ConfigProto()
+            config.gpu_options.per_process_gpu_memory_fraction = 0.8
+            
+            with tf.Session(graph=self.net.graph,config=config) as sess:
+                self._restore_checkpoint_or_init(sess)
 
-        with tf.Session(graph=self.net.graph) as sess:
-            self._restore_checkpoint_or_init(sess)
+                step_num = 1
+                max_steps = FLAGS.max_steps
+                while step_num <= max_steps:
+                    if step_num % 10 == 0:
+                        gs = self._train_step(sess,
+                                           tf.RunOptions(trace_level=tf.RunOptions.FULL_TRACE),
+                                           tf.RunMetadata())
+                        save_path = self.net.saver.save(sess, self.chkpt_file)
+                        print("Model saved in file: %s" % save_path)
 
-            step_num = 1
-            max_steps = FLAGS.epoch * 100
-            while step_num <= max_steps:
-                if step_num % 10 == 0:
-                    gs, acc = self._train_step(sess,
-                                               tf.RunOptions(trace_level=tf.RunOptions.FULL_TRACE),
-                                               tf.RunMetadata())
-                    self._add_accuracy(step_num, gs, acc)
-                    save_path = self.net.saver.save(sess, self.chkpt_file)
-                    print("Model saved in file: %s" % save_path)
-                    if step_num % 100 == 0:
-                        self._evaluate_test()
-                else:
-                    gs, acc = self._train_step(sess)
-                    self._add_accuracy(step_num, gs, acc)
-                step_num += 1
+                    else:
+                        gs = self._train_step(sess)
+                    step_num += 1
 
     def _evaluate_test(self):
         self.keep_prob = 1.0

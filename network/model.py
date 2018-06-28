@@ -2,8 +2,8 @@ import config
 import tensorflow as tf
 import tensorflow.contrib.slim as slim
 import numpy as np
-from network.LSTM import LSTMcell
-from network.LSTM import RNN
+#from network.LSTM import LSTMcell
+#from network.LSTM import RNN
 
 FLAGS = tf.app.flags.FLAGS
 
@@ -39,29 +39,49 @@ class Model:
                             trainable=self.is_training,
                             weights_initializer=tf.truncated_normal_initializer(0.0, 0.01),
                             weights_regularizer=slim.l2_regularizer(0.0005)):
+            #one fc layers           
+            det_flow = slim.fully_connected(det_x, 512, scope='fc1')  
             
-            det_flow = slim.fully_connected(det_x, 256, scope='fc1')             
-            det_flow = slim.fully_connected(det_flow, 512, scope='fc2')               
-            det_flow = self._lstm_cell(det_flow, num_units = 1444, scope='LSTM_1')
+            #LSTM layer
+            det_flow = tf.reshape(det_flow, ( 1, -1, det_flow.shape[1]))
+            det_flow = self._lstm_cell(input = det_flow, num_units = 512, scope='LSTM_1')
+            
+            #a fc layer 
+            det_flow = slim.fully_connected(det_flow, 1444, scope='fc_2')
+            
+            #prepare the lstm1_output to concat
             det_prepared_concat = det_flow
+            
+            #first output layer
             det_flow = slim.fully_connected(det_flow, 64*6, scope='final_1')
-                            
-            img_flow = slim.repeat(img_x, 2, slim.conv2d, 32, [3, 3], scope='conv1')
-            img_flow = slim.max_pool2d(img_flow, [2, 2], scope='pool1')
-            img_flow = slim.repeat(img_flow, 2, slim.conv2d, 64, [3, 3], scope='conv2')
-            img_flow = slim.max_pool2d(img_flow, [2, 2], scope='pool2')
-            img_flow = slim.repeat(img_flow, 3, slim.conv2d, 128, [3, 3], scope='conv3')
-            img_flow = slim.max_pool2d(img_flow, [2, 2], scope='pool3')
 
+            #triple conv_pool
+            img_flow = slim.repeat(img_x, 2, slim.conv2d, 32, [3, 3], data_format='NCHW', scope='conv1')
+            img_flow = slim.max_pool2d(img_flow, [2, 2], scope='pool1', data_format='NCHW', padding='SAME')
+            img_flow = slim.repeat(img_flow, 2, slim.conv2d, 64, [3, 3], data_format='NCHW', scope='conv2')
+            img_flow = slim.max_pool2d(img_flow, [2, 2], scope='pool2', data_format='NCHW', padding='SAME')
+            img_flow = slim.repeat(img_flow, 3, slim.conv2d, 128, [3, 3], data_format='NCHW', scope='conv3')
+            img_flow = slim.max_pool2d(img_flow, [2, 2], scope='pool3', data_format='NCHW', padding='SAME')
+
+            #concat the img and lstm1_output flow
             img_flow = self.tenor_img_concat(det_prepared_concat, img_flow, scope='Concat')
-            img_flow = slim.repeat(img_x, 1, slim.conv2d, 128, [3, 3], scope='conv4')
-            img_flow = slim.repeat(img_x, 1, slim.conv2d, 64, [3, 3], scope='conv5')
-            img_flow = slim.repeat(img_x, 1, slim.conv2d, 32, [3, 3], scope='conv6')
             
-            img_flow = tf.reshape(img_flow, ( img_flow.get_shape[0], img_flow.get_shape[1]* img_flow.get_shape[2] * img_flow.get_shape[3]))
-            img_flow = self._lstm_cell(img_flow, num_units = 4096, scope='LSTM_2')
+            #twice conv
+            img_flow = slim.repeat(img_flow, 1, slim.conv2d, 64, [3, 3], data_format='NCHW', scope='conv4')
+            img_flow = slim.repeat(img_flow, 1, slim.conv2d, 16, [3, 3], data_format='NCHW', scope='conv5')
+            
+            #LSTM_layer
+            # tensro_size = img_w*img_h*img_channel
+            # (batch_size, channel, w, h) -> (1, batch_size, tensor_size)
+            img_flow = tf.reshape(img_flow, ( 1, -1, np.prod(img_flow.get_shape().as_list()[1:])))
+            img_flow = self._lstm_cell(input = img_flow, num_units = 512, scope='LSTM_2')
+            
+            #a fc layer 
+            img_flow = slim.fully_connected(img_flow, 1024, scope='fc_3')
+            
+            #second output layer
             img_flow = slim.fully_connected(img_flow, 64*6, scope='final_2')
-            
+
             return [det_flow,img_flow]
 
     def _cnn(self, input):
@@ -136,50 +156,54 @@ class Model:
             net = slim.fully_connected(net, 1000, activation_fn=None, scope='fc8')
         return net
 
-    @staticmethod
-    def _lstm_cell(net,num_units,scope='LSTM'):
+    def _lstm_cell(self, input, num_units,scope='LSTM'):
         with tf.variable_scope(scope):
-        
-            # (batch_size, tensor_size) -> (1, batch_size, tensor_size)
-            pre_rnn_inputs = tf.reshape(net, (1, net.get_shape()[0], net.get_shape()[1]))
+
+            #將數據從[n_samples, n_steps, D_input]，轉換成[n_steps, n_samples, D_input]
+            # rnn_inputs = tf.transpose(pre_rnn_inputs, perm=[1,0,2])
             
-            # 將數據從[n_samples, n_steps, D_input]，轉換成[n_steps, n_samples, D_input]
-            rnn_inputs = tf.transpose(pre_rnn_inputs, perm=[1,0,2])
+            # cell = LSTMcell(rnn_inputs, shape[1], num_units, tf.initializers.orthogonal)
+            # pre_rnn_outputs = RNN(cell)
             
-            cell = LSTMcell(rnn_inputs, num_units, num_units, self.orthogonal_initializer)
-            pre_rnn_outputs = RNN(cell)
+            # shape = pre_rnn_outputs.get_shape()
+            # rnn_outputs = tf.reshape(pre_rnn_outputs, (-1 , shape[2]))
             
-            rnn_outputs = tf.reshape(net, (pre_rnn_outputs.get_shape()[0], pre_rnn_outputs.get_shape()[2]))
             
+            cell = tf.contrib.rnn.LSTMCell(num_units = num_units, initializer=tf.initializers.orthogonal())
+            h0_state = cell.zero_state(1,tf.float32)
+            outputs, state = tf.nn.dynamic_rnn(cell, input, initial_state=h0_state)
+            
+            out_shape = outputs.get_shape()
+            rnn_outputs = tf.reshape(outputs, (-1, out_shape[2]))
+
             return rnn_outputs
             
-    def tenor_img_concat(det_prepared_concat, img_flow, scope='Concat'):
+    def tenor_img_concat(self, det_prepared_concat, img_flow, scope='Concat'):
         with tf.variable_scope(scope):
             img_shape = img_flow.get_shape()
+            det_shape = det_prepared_concat.get_shape()
             
-            img_prepared_concat = tf.reshape(img_flow, ( img_shape[0], img_shape[1], img_shape[2] * img_shape[3]))
-            img_concated = tf.concat(1, [img_prepared_concat, det_prepared_concat])
+            img_prepared_concat = tf.reshape(img_flow, ( -1, img_shape[1], img_shape[2] * img_shape[3]))
+            det_prepared_concat = tf.reshape(det_prepared_concat, ( -1, 1, img_shape[2] * img_shape[3]))
+            img_concated = tf.concat([img_prepared_concat, det_prepared_concat], 1)
             
-            img_flow = tf.reshape(img_concated, ( img_shape[0], img_shape[1]+1, img_shape[2], img_shape[3]))
+            img_flow = tf.reshape(img_concated, ( -1, img_shape[1]+1, img_shape[2], img_shape[3]))
             
             return img_flow
-            
-        
-        
 
     @staticmethod
     def _dense(output):
         with tf.name_scope('Dense'):
             return slim.fully_connected(output, 6, scope="dense")
+       
+    # def orthogonal_initializer_customed(self, shape,scale = 1.0):
 
-            
-    def orthogonal_initializer(shape,scale = 1.0):
+        # flat_shape = (shape[0], np.prod(shape[1:]))
 
-        flat_shape = (shape[0], np.prod(shape[1:]))
-        a = np.random.normal(0.0, 1.0, flat_shape)
-        u, _, v = np.linalg.svd(a, full_matrices=False)
-        q = u if u.shape == flat_shape else v
-        q = q.reshape(shape) #this needs to be corrected to float32
+        # a = np.random.normal(0.0, 1.0, flat_shape)
+        # u, _, v = np.linalg.svd(a, full_matrices=False)
+        # q = u if u.shape == flat_shape else v
+        # q = q.reshape(shape) #this needs to be corrected to float32
         
-        return tf.Variable(scale * q[:shape[0], :shape[1]], dtype=tf.float32,trainable=True)
+        # return tf.Variable(scale * q[:shape[0], :shape[1]], dtype=tf.float32,trainable=True)
         

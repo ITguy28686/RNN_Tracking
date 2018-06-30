@@ -4,7 +4,7 @@ import os
 FLAGS = tf.app.flags.FLAGS
 
 
-tf.app.flags.DEFINE_integer('max_steps', 1000, 'Number of max_steps')
+tf.app.flags.DEFINE_integer('max_steps', 100000, 'Number of max_steps')
 tf.app.flags.DEFINE_integer('esize', 50, 'Size of examples')
 tf.app.flags.DEFINE_integer('estep', 20, 'Length of step for grouping frames into examples')
 tf.app.flags.DEFINE_integer('height', 240, 'Height of frames')
@@ -16,7 +16,7 @@ tf.app.flags.DEFINE_string('conv', 'standard', 'Type of CNN block')
 tf.app.flags.DEFINE_string('rnn', 'GRU', 'Type of RNN block (LSTM/GRU)')
 tf.app.flags.DEFINE_boolean('update', False, 'Generate TFRecords')
 tf.app.flags.DEFINE_boolean('download', False, 'Download dataset')
-tf.app.flags.DEFINE_boolean('restore', False, 'Restore from previous checkpoint')
+tf.app.flags.DEFINE_boolean('restore', True, 'Restore from previous checkpoint')
 tf.app.flags.DEFINE_boolean('test', False, 'Test evaluation')
 
 data_dir = os.path.join('train_tf/')

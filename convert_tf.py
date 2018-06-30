@@ -11,6 +11,7 @@ from utils.dataset_utils import int64_feature, float_feature, bytes_feature
 
 
 MOT_DIR = "D:\DataSet\MOT16"
+cell_size = 8
     
 def get_frame_det(frame_idx, det_array, img_files):
     
@@ -21,17 +22,16 @@ def get_frame_det(frame_idx, det_array, img_files):
     frame_indices = det_array[:, 0].astype(np.int)
     mask = frame_indices == frame_idx
     rows = det_array[mask]
-    det_tensor = np.zeros((64*4),dtype=np.float32)
+    det_tensor = np.zeros((cell_size,cell_size,4),dtype=np.float32)
     
     #print(rows)
     for i in range(rows.shape[0]):
-        if i >= 64:
-            break
+        det_tensor = encode_det(rows[i],det_tensor)
             
-        det_tensor[i] = rows[i][1]       #x
-        det_tensor[i+64] = rows[i][2]    #y
-        det_tensor[i+64*2] = rows[i][3]  #w
-        det_tensor[i+64*3] = rows[i][4]  #h
+        # det_tensor[i] = rows[i][1]       #x
+        # det_tensor[i+64] = rows[i][2]    #y
+        # det_tensor[i+64*2] = rows[i][3]  #w
+        # det_tensor[i+64*3] = rows[i][4]  #h
         
     #print("frame_det_shape" + str(det_tensor.shape))
 
@@ -47,21 +47,16 @@ def get_frame_gt(frame_idx, gt_array):
     
     rows = gt_array[mask]
 
-    if not len(rows):
-        rows = np.array([[frame_idx,0,0,0,0,0]])
-    
-    gt_tensor = np.zeros((64*6),dtype=np.float32)
-    
+    gt_tensor = np.zeros((cell_size,cell_size,6),dtype=np.float32)
+
     for i in range(rows.shape[0]):
-        if i >= 64:
-            break
-            
-        gt_tensor[i] = rows[i][1]       #track_id
-        gt_tensor[i+64] = 1             #conf
-        gt_tensor[i+64*2] = rows[i][2]  #x
-        gt_tensor[i+64*3] = rows[i][3]  #y
-        gt_tensor[i+64*4] = rows[i][4]  #w
-        gt_tensor[i+64*5] = rows[i][5]  #h
+        gt_tensor = encode_label(rows[i],gt_tensor)
+        # gt_tensor[i] = rows[i][1]       #track_id
+        # gt_tensor[i+64] = 1             #conf
+        # gt_tensor[i+64*2] = rows[i][2]  #x
+        # gt_tensor[i+64*3] = rows[i][3]  #y
+        # gt_tensor[i+64*4] = rows[i][4]  #w
+        # gt_tensor[i+64*5] = rows[i][5]  #h
 
     frame_gt = float_feature(gt_tensor.flatten().tolist())
     
@@ -76,8 +71,10 @@ def get_frame_img(frame_idx, img_files):
     img_data = tf.image.decode_jpeg(frame_raw)
     img_data = tf.image.convert_image_dtype(img_data, dtype=tf.float32)  
     resized_img_data = tf.image.resize_images(img_data, (300, 300), method=0)
+    normalized_img_data = tf.image.per_image_standardization(resized_img_data)
+
     
-    img_mat = resized_img_data.eval()
+    img_mat = normalized_img_data.eval()
     
     resized_raw = img_mat.tobytes()
     frame_img = bytes_feature(resized_raw)
@@ -91,6 +88,33 @@ def get_frame_img(frame_idx, img_files):
     frame_img_shape = int64_feature(shape)
     
     return frame_img_shape, frame_img
+    
+def encode_label(row,gt_tensor):
+    boxes = row[2:6]
+    track_id = row[1]
+    
+    x_ind = int(boxes[0] * cell_size)
+    y_ind = int(boxes[1] * cell_size)
+    
+    if gt_tensor[y_ind, x_ind, 0] == 1:
+        return gt_tensor
+        
+    gt_tensor[y_ind, x_ind, 0] = 1
+    gt_tensor[y_ind, x_ind, 1:5] = boxes
+    gt_tensor[y_ind, x_ind, 5] = track_id
+
+    return gt_tensor
+    
+def encode_det(row,det_tensor):
+    boxes = row[1:5]
+    
+    x_ind = int(boxes[0] * cell_size)
+    y_ind = int(boxes[1] * cell_size)
+        
+    det_tensor[y_ind, x_ind, 0:4] = boxes
+    
+    return det_tensor
+
 
 
 def convert_to_example(frame_det, frame_gt, frame_img_shape, frame_img):

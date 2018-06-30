@@ -30,15 +30,19 @@ class Learning:
 
     def _train_step(self, sess, run_options=None, run_metadata=None):
         if run_options is not None:
-            _, summary, global_step = sess.run(
-                [self.net.train_step, self.net.summary_op, self.net.global_step],
+            _, total_loss, summary, global_step = sess.run(
+                [self.net.train_step, self.net.total_loss, self.net.summary_op, self.net.global_step],
                 feed_dict=self.next_example(), options=run_options, run_metadata=run_metadata)
             self.train_writer.add_run_metadata(run_metadata, 'step{}'.format(global_step), global_step)
-            print('Adding run metadata for', global_step)
+            print('Loss for the %d step: %s' % (global_step ,total_loss))
+            
         else:
-            _, summary, global_step = sess.run(
-                [self.net.train_step, self.net.summary_op, self.net.global_step],
+            _, total_loss, summary, global_step = sess.run(
+                [self.net.train_step, self.net.total_loss, self.net.summary_op, self.net.global_step],
                 feed_dict=self.next_example())
+            print('Loss for the %d step: %s' % (global_step ,total_loss))
+                
+                
         self.train_writer.add_summary(summary, global_step)
         return global_step
 
@@ -71,7 +75,7 @@ class Learning:
 
     def _restore_checkpoint_or_init(self, sess):
         import os
-        if os.path.exists(self.chkpt_file):
+        if FLAGS.restore:
             self.net.saver.restore(sess, self.chkpt_file)
             print("Model restored.")
         else:
@@ -96,7 +100,7 @@ class Learning:
                 step_num = 1
                 max_steps = FLAGS.max_steps
                 while step_num <= max_steps:
-                    if step_num % 10 == 0:
+                    if step_num % 1000 == 0:
                         gs = self._train_step(sess,
                                            tf.RunOptions(trace_level=tf.RunOptions.FULL_TRACE),
                                            tf.RunMetadata())

@@ -10,6 +10,9 @@ FLAGS = tf.app.flags.FLAGS
 
 class Model:
     def __init__(self, det_x, img_x, is_training, keep_prob):
+    
+        self.cell_size = 8
+    
         self.det_x = det_x
         self.img_x = img_x
         self.is_training = is_training
@@ -35,7 +38,7 @@ class Model:
     
     def mynet(self, det_x, img_x) :
         with slim.arg_scope([slim.conv2d, slim.fully_connected],
-                            activation_fn=tf.nn.relu,
+                            activation_fn=tf.nn.leaky_relu,
                             trainable=self.is_training,
                             weights_initializer=tf.truncated_normal_initializer(0.0, 0.01),
                             weights_regularizer=slim.l2_regularizer(0.0005)):
@@ -44,7 +47,7 @@ class Model:
             
             #LSTM layer
             det_flow = tf.reshape(det_flow, ( 1, -1, det_flow.shape[1]))
-            det_flow = self._lstm_cell(input = det_flow, num_units = 512, scope='LSTM_1')
+            det_flow = self._lstm_layer(input = det_flow, num_units = 512, scope='LSTM_1')
             
             #a fc layer 
             det_flow = slim.fully_connected(det_flow, 1444, scope='fc_2')
@@ -53,34 +56,32 @@ class Model:
             det_prepared_concat = det_flow
             
             #first output layer
-            det_flow = slim.fully_connected(det_flow, 64*6, scope='final_1')
+            det_flow = slim.fully_connected(det_flow, self.cell_size*self.cell_size*6, scope='final_1')
 
             #triple conv_pool
-            img_flow = slim.repeat(img_x, 2, slim.conv2d, 32, [3, 3], data_format='NCHW', scope='conv1')
-            img_flow = slim.max_pool2d(img_flow, [2, 2], scope='pool1', data_format='NCHW', padding='SAME')
-            img_flow = slim.repeat(img_flow, 2, slim.conv2d, 64, [3, 3], data_format='NCHW', scope='conv2')
-            img_flow = slim.max_pool2d(img_flow, [2, 2], scope='pool2', data_format='NCHW', padding='SAME')
-            img_flow = slim.repeat(img_flow, 3, slim.conv2d, 128, [3, 3], data_format='NCHW', scope='conv3')
-            img_flow = slim.max_pool2d(img_flow, [2, 2], scope='pool3', data_format='NCHW', padding='SAME')
+            img_flow = slim.repeat(img_x, 1, slim.conv2d, 32, [3, 3], stride=2, data_format='NCHW', padding='SAME', scope='conv1')
+            img_flow = slim.repeat(img_flow, 1, slim.conv2d, 64, [3, 3], stride=2, data_format='NCHW', padding='SAME', scope='conv2')
+            img_flow = slim.repeat(img_flow, 1, slim.conv2d, 64, [3, 3], stride=2, data_format='NCHW', padding='SAME', scope='conv3')
+
 
             #concat the img and lstm1_output flow
             img_flow = self.tenor_img_concat(det_prepared_concat, img_flow, scope='Concat')
             
             #twice conv
-            img_flow = slim.repeat(img_flow, 1, slim.conv2d, 64, [3, 3], data_format='NCHW', scope='conv4')
+            img_flow = slim.repeat(img_flow, 1, slim.conv2d, 32, [3, 3], data_format='NCHW', scope='conv4')
             img_flow = slim.repeat(img_flow, 1, slim.conv2d, 16, [3, 3], data_format='NCHW', scope='conv5')
             
             #LSTM_layer
-            # tensro_size = img_w*img_h*img_channel
+            # tensro_size (w*h*channel)
             # (batch_size, channel, w, h) -> (1, batch_size, tensor_size)
             img_flow = tf.reshape(img_flow, ( 1, -1, np.prod(img_flow.get_shape().as_list()[1:])))
-            img_flow = self._lstm_cell(input = img_flow, num_units = 512, scope='LSTM_2')
+            img_flow = self._lstm_layer(input = img_flow, num_units = 512, scope='LSTM_2')
             
             #a fc layer 
             img_flow = slim.fully_connected(img_flow, 1024, scope='fc_3')
             
             #second output layer
-            img_flow = slim.fully_connected(img_flow, 64*6, scope='final_2')
+            img_flow = slim.fully_connected(img_flow, self.cell_size*self.cell_size*6, scope='final_2')
 
             return [det_flow,img_flow]
 
@@ -156,7 +157,7 @@ class Model:
             net = slim.fully_connected(net, 1000, activation_fn=None, scope='fc8')
         return net
 
-    def _lstm_cell(self, input, num_units,scope='LSTM'):
+    def _lstm_layer(self, input, num_units,scope='LSTM'):
         with tf.variable_scope(scope):
 
             #將數據從[n_samples, n_steps, D_input]，轉換成[n_steps, n_samples, D_input]

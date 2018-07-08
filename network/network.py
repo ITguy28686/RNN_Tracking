@@ -37,9 +37,8 @@ class Network:
             #self._calc_accuracy(logits, self.y)
 
             with tf.name_scope('Cost'):
-                # delta = self.track_y  - logits[1]
-                # loss1 = tf.reduce_mean(
-                            # tf.reduce_sum(tf.square(delta))) 
+                delta = self.track_y  - logits
+                self.total_loss = tf.reduce_mean(tf.reduce_sum(tf.square(delta))) 
                             
                 # delta2 = self.track_y  - logits[0]
                 # loss2 = tf.reduce_mean(
@@ -47,7 +46,7 @@ class Network:
                             
                 # total_loss = loss1 + loss2
                             
-                self.total_loss = self.loss_function(logits,self.track_y)
+                # self.total_loss = self.loss_function(logits,self.track_y)
                 
                 tf.summary.scalar("total_loss", self.total_loss)
                 
@@ -102,7 +101,7 @@ class Network:
     
     
     def loss_function(self, tensor_x, label_y):
-    
+
         tensors = tf.reshape(tensor_x,(-1,self.cell_size,self.cell_size,7))
         labels = tf.reshape(label_y,(-1,self.cell_size,self.cell_size,7))
         batch_size = tf.shape(tensor_x)[0]
@@ -117,30 +116,21 @@ class Network:
         label_newtrack_conf = labels[:,:,:,5]
         label_trackid = tf.cast(labels[:,:,:,6],tf.int32)
         
-        with tf.name_scope('coord_loss'):
-            offset = tf.constant(self.offset, dtype=tf.float32)
-            offset = tf.reshape(offset,[1, self.cell_size, self.cell_size])
-            offset = tf.tile(offset, [batch_size, 1, 1])
+        # with tf.name_scope('coord_loss'):
+            # offset = tf.constant(self.offset, dtype=tf.float32)
+            # offset = tf.reshape(offset,[1, self.cell_size, self.cell_size])
+            # offset = tf.tile(offset, [batch_size, 1, 1])
             
-            # predict_boxes_tran = tf.pack([(predict_boxes[:, :, :, 0] + offset) / self.cell_size,
-                                          # (predict_boxes[:, :, :, 1] + tf.transpose(offset, (0, 2, 1))) / self.cell_size,
-                                          # tf.square(predict_boxes[:, :, :, 2]),
-                                          # tf.square(predict_boxes[:, :, :, 3])])                        
-            # predict_boxes_tran = tf.transpose(predict_boxes_tran, [1, 2, 3, 0])
+            # label_boxes_tran = tf.stack([label_boxes[:, :, :, 0] * self.cell_size - offset,
+                                  # label_boxes[:, :, :, 1] * self.cell_size - tf.transpose(offset, (0, 2, 1)),
+                                  # tf.sqrt(label_boxes[:, :, :, 2]),
+                                  # tf.sqrt(label_boxes[:, :, :, 3])])
+            # label_boxes_tran = tf.transpose(label_boxes_tran, [1, 2, 3, 0])
             
-            #iou_predict_truth = self.calc_iou(predict_boxes_tran, label_boxes)
-            #object_mask = tf.cast((iou_predict_truth >= object_mask), tf.float32) * response
+            # boxes_delta = label_boxes_tran - predict_boxes
+            # coord_loss = tf.reduce_mean(tf.reduce_sum(tf.square(boxes_delta), reduction_indices=[1, 2, 3])) * self.coordloss_scale
             
-            label_boxes_tran = tf.stack([label_boxes[:, :, :, 0] * self.cell_size - offset,
-                                  label_boxes[:, :, :, 1] * self.cell_size - tf.transpose(offset, (0, 2, 1)),
-                                  tf.sqrt(label_boxes[:, :, :, 2]),
-                                  tf.sqrt(label_boxes[:, :, :, 3])])
-            label_boxes_tran = tf.transpose(label_boxes_tran, [1, 2, 3, 0])
-            
-            boxes_delta = label_boxes_tran - predict_boxes
-            coord_loss = tf.reduce_mean(tf.reduce_sum(tf.square(boxes_delta), reduction_indices=[1, 2, 3])) * self.coordloss_scale
-            
-            tf.summary.scalar("coord_loss", coord_loss)
+            # tf.summary.scalar("coord_loss", coord_loss)
             
         with tf.name_scope('conf_loss'):
             conf_delta = label_confidence - predict_confidence

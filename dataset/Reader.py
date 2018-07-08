@@ -45,8 +45,6 @@ class Reader:
 
         #decode tracking_gt
         frame_gt = example.features.feature['frame_gt'].float_list.value
-        #print(np.array(frame_gt).reshape(64,7))
-        #print('-----\n')
         
         #decode concated mat
         frame_mat_shape = example.features.feature['frame_concate_mat_shape'].int64_list.value

@@ -1,6 +1,7 @@
 import tensorflow as tf
 from dataset import Reader
 from network.network import Network
+import numpy as np
 
 import config
 
@@ -39,6 +40,8 @@ class Learning:
 
     def next_example(self):
         frame_gt_batch, frame_x_batch = self.train_reader.get_random_example()
+        # print(np.array(frame_gt_batch).shape)
+        # print(np.array(frame_x_batch).shape)
         
         return {self.net.x: frame_x_batch,
                 self.net.track_y: frame_gt_batch}

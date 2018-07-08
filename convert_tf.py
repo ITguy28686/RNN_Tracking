@@ -42,13 +42,24 @@ def get_frame_imgmask(frame_idx, det_array, img_files):
     mask = frame_indices == frame_idx
     rows = det_array[mask]
     
-    mask_img = np.zeros((300,300,1), np.uint8)
+    mask_img = np.zeros((300,300,1), np.float32)
 
     for i in range(rows.shape[0]):
         mask_x = int(300 * rows[i][1])
         mask_y = int(300 * rows[i][2])
         mask_w = int(300 * rows[i][3])
         mask_h = int(300 * rows[i][4])
+        
+        # if(mask_x >= 300 or mask_y>= 300):
+            # print('%f,%f  %f,%f' % (rows[i][1],rows[i][2],mask_x,mask_y))
+        
+        if(mask_x < 0):
+            mask_w += mask_x
+            mask_x = 0
+                  
+        if(mask_y < 0):
+            mask_h += mask_y
+            mask_y = 0
         
         if(mask_x+mask_w >= 300):
             mask_w = 300 - mask_x - 1
@@ -57,12 +68,17 @@ def get_frame_imgmask(frame_idx, det_array, img_files):
             mask_h = 300 - mask_y - 1
         
         for y in range(mask_y,mask_y+mask_h):
-            mask_img[y][mask_x] = 255
-            mask_img[y][mask_x+mask_w] = 255
+            mask_img[y][mask_x] = 1
+            mask_img[y][mask_x+mask_w] = 1
             
         for x in range(mask_x,mask_x+mask_w):
-            mask_img[mask_y][x] = 255
-            mask_img[mask_y+mask_h][x] = 255  
+            mask_img[mask_y][x] = 1
+            mask_img[mask_y+mask_h][x] = 1  
+    mask_img = mask_img.astype(np.float32)  
+    
+    # cv2.imshow("mask_img",mask_img)
+    # cv2.waitKey(0)
+   
     
     #get image
     frame_raw = tf.gfile.FastGFile(img_files[frame_idx], 'rb').read()
@@ -77,6 +93,8 @@ def get_frame_imgmask(frame_idx, det_array, img_files):
     
     #concat img and mask
     img_mat_concat = np.concatenate((img_mat,mask_img),axis=2)
+    # print(img_mat_concat[0][0])
+    # sys.exit(0)
     
     resized_raw = img_mat_concat.tobytes()
     frame_concat_mat = bytes_feature(resized_raw)
@@ -94,8 +112,17 @@ def get_frame_imgmask(frame_idx, det_array, img_files):
 
 def encode_label(row,gt_tensor,last_trackid):
 
+    if(row[2] < 0):
+        row[4] += row[2]
+        row[2] = 0
+
+    if(row[3] < 0):
+        row[5] += row[3]
+        row[3] = 0
+
     #boxes = [row[2] + row[4] / 2.0, row[3] + row[5] / 2.0, row[4], row[5]]
     boxes = row[2:6]
+
     track_id = row[1]
     
     x_ind = int(boxes[0] * cell_size)

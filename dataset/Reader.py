@@ -15,49 +15,48 @@ class Reader:
         self.init_dataset()
 
     def get_random_example(self):
-        frame_det_batch, frame_gt_batch, frame_img_batch = self.read_tfrecord(np.random.choice(self.files))
-        return frame_det_batch, frame_gt_batch, frame_img_batch
+        frame_gt_batch, frame_x_batch = self.read_tfrecord(np.random.choice(self.files))
+        return frame_gt_batch, frame_x_batch
 
     def read_tfrecord(self, path):
-        frame_det_batch = []
         frame_gt_batch = []
-        frame_img_batch = []
+        frame_x_batch = []
         
-        index = 0
+        #index = 0
+        #print("path = " + path)
         for string_record in tf.python_io.tf_record_iterator(path=path):
             example = tf.train.Example()
             example.ParseFromString(string_record)
             
-            frame_det, frame_gt, frame_img = self.feature_decode(example)
-            frame_det_batch.append(frame_det)
-            frame_gt_batch.append(frame_gt)
-            frame_img_batch.append(frame_img)
+            frame_gt, frame_mat = self.feature_decode(example)
             
-            index += 1
+            frame_gt_batch.append(frame_gt)
+            frame_x_batch.append(frame_mat)
+            
+            #index += 1
         
-
-        FLAGS.batch_size = index
+        
+        #FLAGS.batch_size = index
         #det_x = self.gen_det_x(np.asarray(frame_det_batch)) #reshape the detection input to [batch_size][x,...,y...,w...,h...] batch_size * 4 * 64 tensor
-        
-        return frame_det_batch, frame_gt_batch, frame_img_batch
+        #sys.exit(0)
+        return frame_gt_batch, frame_x_batch
         
     def feature_decode(self,example):
-        
-        #decode detection
-        frame_det = example.features.feature['frame_det'].float_list.value
 
         #decode tracking_gt
         frame_gt = example.features.feature['frame_gt'].float_list.value
+        #print(np.array(frame_gt).reshape(64,7))
+        #print('-----\n')
         
-        #decode img
-        frame_img_shape = example.features.feature['frame_img_shape'].int64_list.value
-        frame_img_string = example.features.feature['frame_img'].bytes_list.value[0]
-        frame_img = np.fromstring(frame_img_string, dtype=np.float32).reshape(frame_img_shape)
+        #decode concated mat
+        frame_mat_shape = example.features.feature['frame_concate_mat_shape'].int64_list.value
+        frame_mat_string = example.features.feature['frame_concat_mat'].bytes_list.value[0]
+        frame_mat = np.fromstring(frame_mat_string, dtype=np.float32).reshape(frame_mat_shape)
 
         #cv2.imshow("Image", frame_img)
         #cv2.waitKey(0)
         
-        return frame_det, frame_gt, frame_img
+        return frame_gt, frame_mat
         
     def parse_tfr_filename(self, path):
         filename, ext = os.path.splitext(path)

@@ -16,7 +16,7 @@ tf.app.flags.DEFINE_string('conv', 'standard', 'Type of CNN block')
 tf.app.flags.DEFINE_string('rnn', 'GRU', 'Type of RNN block (LSTM/GRU)')
 tf.app.flags.DEFINE_boolean('update', False, 'Generate TFRecords')
 tf.app.flags.DEFINE_boolean('download', False, 'Download dataset')
-tf.app.flags.DEFINE_boolean('restore', True, 'Restore from previous checkpoint')
+tf.app.flags.DEFINE_boolean('restore', False, 'Restore from previous checkpoint')
 tf.app.flags.DEFINE_boolean('test', False, 'Test evaluation')
 
 data_dir = os.path.join('train_tf/')

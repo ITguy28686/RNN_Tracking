@@ -10,23 +10,14 @@ FLAGS = tf.app.flags.FLAGS
 class Learning:
     def __init__(self):
         self.train_reader = Reader.Reader("train_tf/*.tfrecord")
-        #self.test_reader = Reader.Reader("dataset/data/segmented_set2/*.tfr")
 
         self.logs_dir = FLAGS.logdir
         self.train_logs_path = self.logs_dir + '/train_logs'
-        #self.test_logs_path = self.logs_dir + '/test_logs'
         
         self.chkpt_file = self.logs_dir + "/model.ckpt"
 
-        self.ten_accuracy = []
-        self.epoch_accuracy = []
-
-        if FLAGS.test is True:
-            self.is_training = False
-            self._evaluate_test()
-        else:
-            self.is_training = True
-            self._evaluate_train()
+        self.is_training = True
+        self._evaluate_train()
 
     def _train_step(self, sess, run_options=None, run_metadata=None):
         if run_options is not None:
@@ -46,19 +37,10 @@ class Learning:
         self.train_writer.add_summary(summary, global_step)
         return global_step
 
-    def _test_step(self, sess):
-        # TODO: New reader for test on all videos
-        summary, global_step, accuracy = sess.run(
-            [self.net.summary_op, self.net.global_step, self.net.accuracy],
-            feed_dict=self.next_example())
-        self.test_writer.add_summary(summary, global_step)
-        return global_step, accuracy
-
     def next_example(self):
-        frame_det_batch, frame_gt_batch, frame_img_batch = self.train_reader.get_random_example()
+        frame_gt_batch, frame_x_batch = self.train_reader.get_random_example()
         
-        return {self.net.det_x: frame_det_batch,
-                self.net.img_x: frame_img_batch,
+        return {self.net.x: frame_x_batch,
                 self.net.track_y: frame_gt_batch}
 
     def _add_accuracy(self, step_num, global_step, accuracy):
@@ -110,32 +92,3 @@ class Learning:
                     else:
                         gs = self._train_step(sess)
                     step_num += 1
-
-    def _evaluate_test(self):
-        self.keep_prob = 1.0
-        self.is_training = False
-        self.net = Network(self.is_training)
-        self.ten_accuracy = []
-        self.epoch_accuracy = []
-        self.test_writer = tf.summary.FileWriter(self.test_logs_path, graph=self.net.graph)
-
-        # TODO: reset graph and update model
-        with tf.Session(graph=self.net.graph) as sess:
-            self._restore_checkpoint_or_init(sess)
-            step_num = 1
-            max_steps = FLAGS.epoch * 100
-            while step_num <= max_steps:
-                if step_num % 10 == 0:
-                    gs, acc = self._test_step(sess)
-                    self._add_accuracy(step_num, gs, acc)
-                    if step_num % 100 == 0:
-                        self._evaluate_test()
-                else:
-                    gs, acc = self._test_step(sess)
-                    self._add_accuracy(step_num, gs, acc)
-                step_num += 1
-
-            self.keep_prob = 0.75
-            self.is_training = True
-            self.net = Network(self.is_training)
-            self.net.saver.restore(sess, self.chkpt_file)

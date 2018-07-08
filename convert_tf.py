@@ -12,45 +12,18 @@ from utils.dataset_utils import int64_feature, float_feature, bytes_feature
 
 MOT_DIR = "D:\DataSet\MOT16"
 cell_size = 8
-    
-def get_frame_det(frame_idx, det_array, img_files):
-    
-    if frame_idx not in img_files:
-        return None
-    
-    #print("do %d" % frame_idx)
-    frame_indices = det_array[:, 0].astype(np.int)
-    mask = frame_indices == frame_idx
-    rows = det_array[mask]
-    det_tensor = np.zeros((cell_size,cell_size,4),dtype=np.float32)
-    
-    #print(rows)
-    for i in range(rows.shape[0]):
-        det_tensor = encode_det(rows[i],det_tensor)
-            
-        # det_tensor[i] = rows[i][1]       #x
-        # det_tensor[i+64] = rows[i][2]    #y
-        # det_tensor[i+64*2] = rows[i][3]  #w
-        # det_tensor[i+64*3] = rows[i][4]  #h
-        
-    #print("frame_det_shape" + str(det_tensor.shape))
 
-    frame_det = float_feature(det_tensor.flatten().tolist())
-    
-    return frame_det
-   
-
-def get_frame_gt(frame_idx, gt_array):
+def get_frame_gt(frame_idx, gt_array, last_trackid):
 
     frame_indices = gt_array[:, 0].astype(np.int)
     mask = frame_indices == frame_idx
     
     rows = gt_array[mask]
 
-    gt_tensor = np.zeros((cell_size,cell_size,6),dtype=np.float32)
+    gt_tensor = np.zeros((cell_size,cell_size,7),dtype=np.float32)
 
     for i in range(rows.shape[0]):
-        gt_tensor = encode_label(rows[i],gt_tensor)
+        gt_tensor, last_trackid = encode_label(rows[i],gt_tensor, last_trackid)
         # gt_tensor[i] = rows[i][1]       #track_id
         # gt_tensor[i+64] = 1             #conf
         # gt_tensor[i+64*2] = rows[i][2]  #x
@@ -60,36 +33,68 @@ def get_frame_gt(frame_idx, gt_array):
 
     frame_gt = float_feature(gt_tensor.flatten().tolist())
     
-    return frame_gt
-       
+    return frame_gt, last_trackid
+    
+def get_frame_imgmask(frame_idx, det_array, img_files):
 
-def get_frame_img(frame_idx, img_files):
+    #get mask
+    frame_indices = det_array[:, 0].astype(np.int)
+    mask = frame_indices == frame_idx
+    rows = det_array[mask]
+    
+    mask_img = np.zeros((300,300,1), np.uint8)
 
+    for i in range(rows.shape[0]):
+        mask_x = int(300 * rows[i][1])
+        mask_y = int(300 * rows[i][2])
+        mask_w = int(300 * rows[i][3])
+        mask_h = int(300 * rows[i][4])
+        
+        if(mask_x+mask_w >= 300):
+            mask_w = 300 - mask_x - 1
+        
+        if(mask_y+mask_h >= 300):
+            mask_h = 300 - mask_y - 1
+        
+        for y in range(mask_y,mask_y+mask_h):
+            mask_img[y][mask_x] = 255
+            mask_img[y][mask_x+mask_w] = 255
+            
+        for x in range(mask_x,mask_x+mask_w):
+            mask_img[mask_y][x] = 255
+            mask_img[mask_y+mask_h][x] = 255  
+    
+    #get image
     frame_raw = tf.gfile.FastGFile(img_files[frame_idx], 'rb').read()
 
     # decode image to jpeg
     img_data = tf.image.decode_jpeg(frame_raw)
     img_data = tf.image.convert_image_dtype(img_data, dtype=tf.float32)  
     resized_img_data = tf.image.resize_images(img_data, (300, 300), method=0)
-    normalized_img_data = tf.image.per_image_standardization(resized_img_data)
-
+    #normalized_img_data = tf.image.per_image_standardization(resized_img_data)
     
-    img_mat = normalized_img_data.eval()
+    img_mat = resized_img_data.eval()
     
-    resized_raw = img_mat.tobytes()
-    frame_img = bytes_feature(resized_raw)
+    #concat img and mask
+    img_mat_concat = np.concatenate((img_mat,mask_img),axis=2)
     
-    shape = img_mat.shape
+    resized_raw = img_mat_concat.tobytes()
+    frame_concat_mat = bytes_feature(resized_raw)
+    
+    shape = img_mat_concat.shape
     
     shape = np.array(shape)
     shape = shape.flatten()
     shape = shape.tolist()
     
-    frame_img_shape = int64_feature(shape)
+    frame_concate_mat_shape = int64_feature(shape)
     
-    return frame_img_shape, frame_img
-    
-def encode_label(row,gt_tensor):
+    return frame_concate_mat_shape, frame_concat_mat
+
+
+def encode_label(row,gt_tensor,last_trackid):
+
+    #boxes = [row[2] + row[4] / 2.0, row[3] + row[5] / 2.0, row[4], row[5]]
     boxes = row[2:6]
     track_id = row[1]
     
@@ -97,33 +102,30 @@ def encode_label(row,gt_tensor):
     y_ind = int(boxes[1] * cell_size)
     
     if gt_tensor[y_ind, x_ind, 0] == 1:
-        return gt_tensor
+        return gt_tensor, last_trackid
         
     gt_tensor[y_ind, x_ind, 0] = 1
     gt_tensor[y_ind, x_ind, 1:5] = boxes
-    gt_tensor[y_ind, x_ind, 5] = track_id
-
-    return gt_tensor
     
-def encode_det(row,det_tensor):
-    boxes = row[1:5]
+    if(track_id > last_trackid):
+        gt_tensor[y_ind, x_ind, 5] = 1
+        last_trackid += 1
+        #print(last_trackid)
+    else:
+        gt_tensor[y_ind, x_ind, 5] = 0
     
-    x_ind = int(boxes[0] * cell_size)
-    y_ind = int(boxes[1] * cell_size)
-        
-    det_tensor[y_ind, x_ind, 0:4] = boxes
-    
-    return det_tensor
+    gt_tensor[y_ind, x_ind, 6] = track_id
 
 
+    return gt_tensor, last_trackid
 
-def convert_to_example(frame_det, frame_gt, frame_img_shape, frame_img):
+def convert_to_example(frame_gt, frame_concate_mat_shape, frame_concat_mat):
 
     example = tf.train.Example(features=tf.train.Features(feature={
-            'frame_img_shape': frame_img_shape,
-            'frame_det': frame_det,
+            'frame_concate_mat_shape': frame_concate_mat_shape,
             'frame_gt': frame_gt,
-            'frame_img': frame_img}))
+            'frame_concat_mat': frame_concat_mat,
+            }))
             
     return example
 
@@ -173,19 +175,20 @@ def run(output_dir):
                     max_frame_idx = frame_indices.astype(np.int).max()
                     
                     gt_array = np.loadtxt(gt_file, delimiter=',')
-
+                    
+                    last_trackid = 0
                     with tf.python_io.TFRecordWriter(tf_filename) as tfrecord_writer:
                         for frame_idx in range(min_frame_idx, max_frame_idx + 1):
-                        
-                            frame_det = get_frame_det(frame_idx, det_array, img_files)
-                            if frame_det is None:
+
+                            if frame_idx not in img_files:
                                 continue
-                                
-                            frame_gt = get_frame_gt(frame_idx, gt_array)
                             
-                            frame_img_shape, frame_img = get_frame_img(frame_idx, img_files)
+                            #frame_det = get_frame_det(frame_idx, det_array, img_files)
+                            frame_gt, last_trackid = get_frame_gt(frame_idx, gt_array, last_trackid)
                             
-                            example = convert_to_example(frame_det, frame_gt, frame_img_shape, frame_img)
+                            frame_concate_mat_shape, frame_concat_mat = get_frame_imgmask(frame_idx, det_array, img_files)
+                            
+                            example = convert_to_example(frame_gt, frame_concate_mat_shape, frame_concat_mat)
                             tfrecord_writer.write(example.SerializeToString())
                             
                                    

@@ -40,6 +40,11 @@ class Learning:
 
     def next_example(self):
         frame_gt_batch, frame_x_batch = self.train_reader.get_random_example()
+        
+        # frame_x_batch = np.transpose(frame_x_batch, [3,0,1,2])
+        # frame_x_batch = frame_x_batch[0:3]
+        # frame_x_batch = np.transpose(frame_x_batch, [1,2,3,0])
+        
         # print(np.array(frame_gt_batch).shape)
         # print(np.array(frame_x_batch).shape)
         

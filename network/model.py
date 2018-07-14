@@ -16,12 +16,12 @@ class Model:
         self.mat_x = mat_x
         self.is_training = is_training
         self.keep_prob = keep_prob
-        self.logits = self._init_model()
+        self.logits, self.coord_logits = self._init_model()
 
     def _init_model(self):
 
-        logits = self.mynet(self.mat_x, data_format='NCHW')
-        return logits
+        logits, coord_logits = self.mynet(self.mat_x, data_format='NCHW')
+        return logits, coord_logits
     
     
     def mynet(self, mat_x, data_format='NCHW') :
@@ -39,8 +39,11 @@ class Model:
             img_flow = slim.repeat(img_flow, 1, slim.conv2d, 256, [3, 3], stride=2, data_format=data_format, padding='SAME', scope='conv5_pool')
             img_flow = slim.repeat(img_flow, 1, slim.conv2d, 256, [3, 3], data_format=data_format, scope='conv6')
             img_flow = slim.repeat(img_flow, 1, slim.conv2d, 256, [3, 3], stride=2, data_format=data_format, padding='SAME', scope='conv7_pool')
-            img_flow = slim.repeat(img_flow, 1, slim.conv2d, 128, [3, 3], data_format=data_format, scope='conv8')
-            img_flow = slim.repeat(img_flow, 1, slim.conv2d, 32, [3, 3], data_format=data_format, scope='conv9')
+            coord_flow = img_flow
+            img_flow = slim.repeat(img_flow, 1, slim.conv2d, 256, [3, 3], data_format=data_format, scope='conv8')
+            img_flow = slim.repeat(img_flow, 1, slim.conv2d, 512, [3, 3], stride=2, data_format=data_format, padding='SAME', scope='conv9_pool')
+            img_flow = slim.repeat(img_flow, 1, slim.conv2d, 256, [3, 3], data_format=data_format, scope='conv10')
+            img_flow = slim.repeat(img_flow, 1, slim.conv2d, 64, [3, 3], data_format=data_format, scope='conv11')
             
             #LSTM_layer
             # tensro_size (w*h*channel)
@@ -53,8 +56,14 @@ class Model:
             
             #second output layer
             img_flow = slim.fully_connected(img_flow, self.cell_size*self.cell_size*7, scope='final', activation_fn=None)
+            
+            coord_flow = slim.repeat(coord_flow, 1, slim.conv2d, 256, [3, 3], data_format=data_format, scope='coord_conv1')
+            coord_flow = slim.repeat(coord_flow, 1, slim.conv2d, 512, [3, 3], stride=2, data_format=data_format, padding='SAME', scope='coord_conv2_pool')
+            coord_flow = tf.reshape(coord_flow, (-1,np.prod(coord_flow.get_shape().as_list()[1:])))
+            coord_flow = slim.fully_connected(coord_flow, 512, scope='coord_fc')
+            coord_flow = slim.fully_connected(coord_flow, self.cell_size*self.cell_size*5, scope='coord_final', activation_fn=None)
 
-            return img_flow
+            return img_flow, coord_flow
 
     def _lstm_layer(self, input, num_units,scope='LSTM'):
         with tf.variable_scope(scope):
@@ -69,7 +78,7 @@ class Model:
             # rnn_outputs = tf.reshape(pre_rnn_outputs, (-1 , shape[2]))
             
             
-            cell = tf.contrib.rnn.LSTMCell(num_units = num_units, initializer=tf.initializers.orthogonal(), activation=tf.nn.leaky_relu)
+            cell = tf.contrib.rnn.LSTMCell(num_units = num_units, initializer=tf.initializers.orthogonal(), activation=tf.nn.relu6)
             h0_state = cell.zero_state(1,tf.float32)
             outputs, state = tf.nn.dynamic_rnn(cell, input, initial_state=h0_state)
             

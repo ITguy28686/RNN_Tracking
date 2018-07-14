@@ -11,10 +11,10 @@ class Network:
     def __init__(self, is_training):
         
         self.cell_size = 8
-        self.coordloss_scale = 4
-        self.confloss_scale = 2
-        self.track_confloss_scale = 1
-        self.trackloss_scale = 3
+        self.coordloss_scale = 1
+        self.confloss_scale = 20
+        self.track_confloss_scale = 300
+        self.trackloss_scale = 10
         
         self.offset = np.reshape(np.array(
             [np.arange(self.cell_size)] * self.cell_size),
@@ -32,21 +32,27 @@ class Network:
             
             self.track_y = tf.placeholder(dtype=tf.float32, shape=(None, self.cell_size*self.cell_size*7), name='track_label')
             self.keep_prob = tf.placeholder(dtype=tf.float32, name='keep_prob')
+            
+            mynet = Model(self.x_nchw, self.is_training, self.keep_prob)
 
-            logits = Model(self.x_nchw, self.is_training, self.keep_prob).logits
+            logits = mynet.logits
+            coord_logits = mynet.coord_logits
+            # print(logits)
             #self._calc_accuracy(logits, self.y)
 
             with tf.name_scope('Cost'):
-                delta = self.track_y  - logits
-                self.total_loss = tf.reduce_mean(tf.reduce_sum(tf.square(delta))) 
+                # delta = self.track_y  - logits
+                # self.total_loss = tf.reduce_mean(tf.reduce_sum(tf.square(delta))) 
                             
                 # delta2 = self.track_y  - logits[0]
                 # loss2 = tf.reduce_mean(
                             # tf.reduce_sum(tf.square(delta2)))
                             
                 # total_loss = loss1 + loss2
-                            
-                # self.total_loss = self.loss_function(logits,self.track_y)
+                
+                coord_loss = self.coord_loss_function(coord_logits,self.track_y)
+                logits_loss = self.loss_function(logits,self.track_y)
+                self.total_loss = coord_loss + logits_loss
                 
                 tf.summary.scalar("total_loss", self.total_loss)
                 
@@ -116,21 +122,21 @@ class Network:
         label_newtrack_conf = labels[:,:,:,5]
         label_trackid = tf.cast(labels[:,:,:,6],tf.int32)
         
-        # with tf.name_scope('coord_loss'):
-            # offset = tf.constant(self.offset, dtype=tf.float32)
-            # offset = tf.reshape(offset,[1, self.cell_size, self.cell_size])
-            # offset = tf.tile(offset, [batch_size, 1, 1])
+        with tf.name_scope('coord_loss'):
+            offset = tf.constant(self.offset, dtype=tf.float32)
+            offset = tf.reshape(offset,[1, self.cell_size, self.cell_size])
+            offset = tf.tile(offset, [batch_size, 1, 1])
             
-            # label_boxes_tran = tf.stack([label_boxes[:, :, :, 0] * self.cell_size - offset,
-                                  # label_boxes[:, :, :, 1] * self.cell_size - tf.transpose(offset, (0, 2, 1)),
-                                  # tf.sqrt(label_boxes[:, :, :, 2]),
-                                  # tf.sqrt(label_boxes[:, :, :, 3])])
-            # label_boxes_tran = tf.transpose(label_boxes_tran, [1, 2, 3, 0])
+            label_boxes_tran = tf.stack([label_boxes[:, :, :, 0] * self.cell_size - offset,
+                                  label_boxes[:, :, :, 1] * self.cell_size - tf.transpose(offset, (0, 2, 1)),
+                                  tf.sqrt(label_boxes[:, :, :, 2]),
+                                  tf.sqrt(label_boxes[:, :, :, 3])])
+            label_boxes_tran = tf.transpose(label_boxes_tran, [1, 2, 3, 0])
             
-            # boxes_delta = label_boxes_tran - predict_boxes
-            # coord_loss = tf.reduce_mean(tf.reduce_sum(tf.square(boxes_delta), reduction_indices=[1, 2, 3])) * self.coordloss_scale
+            boxes_delta = label_boxes_tran - predict_boxes
+            coord_loss = tf.reduce_mean(tf.reduce_sum(tf.square(boxes_delta), reduction_indices=[1, 2, 3])) * self.coordloss_scale
             
-            # tf.summary.scalar("coord_loss", coord_loss)
+            tf.summary.scalar("coord_loss", coord_loss)
             
         with tf.name_scope('conf_loss'):
             conf_delta = label_confidence - predict_confidence
@@ -150,7 +156,42 @@ class Network:
             tf.summary.scalar("track_loss", track_loss)
             
         return coord_loss + conf_loss + track_conf_loss + track_loss
+    
+    def coord_loss_function(self, tensor_x, label_y):
 
+        tensors = tf.reshape(tensor_x,(-1,self.cell_size,self.cell_size,5))
+        labels = tf.reshape(label_y,(-1,self.cell_size,self.cell_size,7))
+        batch_size = tf.shape(tensor_x)[0]
+        
+        predict_confidence = tensors[:,:,:,0]
+        predict_boxes = tensors[:,:,:,1:]
+        
+        label_confidence = labels[:,:,:,0]
+        label_boxes = labels[:,:,:,1:5]
+        
+        with tf.name_scope('coord_loss2'):
+            offset = tf.constant(self.offset, dtype=tf.float32)
+            offset = tf.reshape(offset,[1, self.cell_size, self.cell_size])
+            offset = tf.tile(offset, [batch_size, 1, 1])
+            
+            label_boxes_tran = tf.stack([label_boxes[:, :, :, 0] * self.cell_size - offset,
+                                  label_boxes[:, :, :, 1] * self.cell_size - tf.transpose(offset, (0, 2, 1)),
+                                  tf.sqrt(label_boxes[:, :, :, 2]),
+                                  tf.sqrt(label_boxes[:, :, :, 3])])
+            label_boxes_tran = tf.transpose(label_boxes_tran, [1, 2, 3, 0])
+            
+            boxes_delta = label_boxes_tran - predict_boxes
+            coord_loss = tf.reduce_mean(tf.reduce_sum(tf.square(boxes_delta), reduction_indices=[1, 2, 3])) * self.coordloss_scale
+            
+            tf.summary.scalar("coord_loss2", coord_loss)
+            
+        with tf.name_scope('conf_loss2'):
+            conf_delta = label_confidence - predict_confidence
+            conf_loss = tf.reduce_mean(tf.reduce_sum(tf.square(conf_delta), reduction_indices=[1, 2])) * self.confloss_scale
+            tf.summary.scalar("conf_loss2", conf_loss)
+      
+        return coord_loss + conf_loss
+    
     @staticmethod
     def print_model():
         def get_nb_params_shape(shape):

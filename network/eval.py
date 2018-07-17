@@ -16,6 +16,8 @@ class Learning:
         self.train_logs_path = self.logs_dir + '/train_logs'
         
         self.chkpt_file = self.logs_dir + "/model.ckpt"
+        self.h_state_init = np.zeros(768).reshape(1,768).astype(np.float32)
+        self.cell_state_init = np.zeros(768).reshape(1,768).astype(np.float32)
 
         self.is_training = True
         self._evaluate_train()
@@ -49,19 +51,10 @@ class Learning:
         # print(np.array(frame_x_batch).shape)
         
         return {self.net.x: frame_x_batch,
-                self.net.track_y: frame_gt_batch}
-
-    def _add_accuracy(self, step_num, global_step, accuracy):
-        print('Step: {}. Global Step: {}. Accuracy: {}.'.format(step_num, global_step, accuracy))
-        if accuracy == 1:
-            self.ten_accuracy.append(1)
-        if step_num % 10 == 0:
-            print('Accuracy for 10 last steps:', sum(self.ten_accuracy) / 10)
-            self.epoch_accuracy.append(sum(self.ten_accuracy) / 10)
-            self.ten_accuracy = []
-            if step_num % 100 == 0:
-                print('Epoch accuracy:', sum(self.epoch_accuracy) / len(self.epoch_accuracy))
-                self.epoch_accuracy = []
+                self.net.track_y: frame_gt_batch,
+                self.net.h_state_init: self.h_state_init,
+                self.net.cell_state_init: self.cell_state_init
+                }
 
     def _restore_checkpoint_or_init(self, sess):
         import os

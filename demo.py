@@ -6,18 +6,24 @@ import numpy as np
 import cv2
 import tensorflow as tf
 
-
 slim = tf.contrib.slim
 import sys
 
 from network.model import Model
 
-from timer import Timer
+from utils.timer import Timer
 import argparse
 
 
 chkpt_file = "network/logs/model.ckpt"
 test_tf = "train_tf/MOT16-02-0_train.tfrecord"
+
+cell_size = 8
+offset = np.reshape(np.array(
+        [np.arange(cell_size)] * cell_size),
+        (cell_size, cell_size))
+        
+offset_tran = np.transpose(offset, (1, 0))
 
 # TensorFlow session: grow memory when needed. TF, DO NOT USE ALL MY GPU MEMORY!!!
 gpu_options = tf.GPUOptions(allow_growth=True)
@@ -25,88 +31,146 @@ config = tf.ConfigProto(log_device_placement=False, gpu_options=gpu_options)
 isess = tf.InteractiveSession(config=config)
 
 # Input placeholder.
-net_shape = (300, 300)
-
-det_input = tf.placeholder(dtype=tf.float32, shape=(1, self.cell_size*self.cell_size*4))
-img_input = tf.placeholder(dtype=tf.float32, shape=(1,300, 300, 3))
+img_input = tf.placeholder(dtype=tf.float32, shape=(1,300, 300, 4))
+h_state_init = tf.placeholder(dtype=tf.float32, shape=(1, 768))
+cell_state_init = tf.placeholder(dtype=tf.float32, shape=(1, 768))
 
 graph = tf.Graph()
-logits = self.mynet(self.det_x, self.img_x)
+mynet = Model(img_input, h_state_init, cell_state_init, is_training=False, keep_prob=0, data_format='NHWC')
 
-# Define the SSD model.
-reuse = True if 'ssd_net' in locals() else None
-ssd_net = ssd_fpn_vgg_300.SSDNet()
-#ssd_net = ssd_vgg_300.SSDNet()
-with slim.arg_scope(ssd_net.arg_scope(data_format=data_format)):
-    predictions, localisations, _, _ = ssd_net.net(image_4d, is_training=False, reuse=reuse)
+# Restore model.
+ckpt_filename = './network/logs/model.ckpt'
 
-# Restore SSD model.
-ckpt_filename = './log/model.ckpt-10000'
-#ckpt_filename = './checkpoints/ssd_300_vgg.ckpt'
-#ckpt_filename = './checkpoints/VGG_VOC0712_SSD_300x300_iter_120000.ckpt'
-
-# ckpt_filename = '../checkpoints/VGG_VOC0712_SSD_300x300_ft_iter_120000.ckpt'
 isess.run(tf.global_variables_initializer())
 saver = tf.train.Saver()
 saver.restore(isess, ckpt_filename)
 
-# SSD default anchor boxes.
-ssd_anchors = ssd_net.anchors(net_shape)
+def feature_decode(example):
+ 
+        #decode concated mat
+        frame_mat_shape = example.features.feature['frame_concate_mat_shape'].int64_list.value
+        frame_mat_string = example.features.feature['frame_concat_mat'].bytes_list.value[0]
+        frame_mat = np.fromstring(frame_mat_string, dtype=np.float32).reshape(frame_mat_shape)
+        frame_mat = np.expand_dims(frame_mat, axis=0)
 
+        #cv2.imshow("Image", frame_img)
+        #cv2.waitKey(0)
+        
+        return frame_mat
 
+def process_coord_logits(tensor_x):
 
+    tensors = np.reshape(tensor_x,(cell_size,cell_size,5))
+    
+    confidence = tensors[:,:,0]
+    predict_boxes = tensors[:,:,1:5]
+
+    boxes = np.stack([(predict_boxes[..., 0] + offset) / cell_size * 300,
+                 (predict_boxes[..., 1] + offset_tran) / cell_size * 300,
+                 np.square(predict_boxes[..., 2]) * 300,
+                 np.square(predict_boxes[..., 3]) * 300])
+    boxes = boxes.astype(np.int32)
+    #boxes = np.transpose(boxes, [1, 2, 0])
+        
+    return confidence, boxes
+        
+def process_logits(tensor_x):
+
+    tensors = np.reshape(tensor_x,(cell_size,cell_size,7))
+    
+    confidence = tensors[:,:,0]
+    predict_boxes = tensors[:,:,1:5]
+    newtrack_conf = tensors[:,:,5]
+    trackid = tensors[:,:,6].astype(np.int32)
+
+    boxes = np.stack([(predict_boxes[..., 0] + offset) / cell_size * 300,
+                 (predict_boxes[..., 1] + offset_tran) / cell_size * 300,
+                 np.square(predict_boxes[..., 2]) * 300,
+                 np.square(predict_boxes[..., 3]) * 300])
+    boxes = boxes.astype(np.int32)
+    #boxes = np.transpose(boxes, [1, 2, 0])
+         
+    return confidence, boxes, newtrack_conf, trackid
+    
+def check_point_inbound(point,width,height):
+    if point[0] < 0 or point[0] > width or point[1] < 0 or point[1] > height :
+        return False
+    return True
+    
+    
+
+def draw_frame(img, confidence, boxes, newtrack_conf, trackid):
+    #print(img.shape)
+    for i in range(cell_size):
+        for j in range(cell_size):
+            if confidence[i][j] > 0.2 :
+                #print(boxes[0][i][j],boxes[1][i][j],boxes[2][i][j],boxes[3][i][j])
+                left_top = (boxes[0][i][j],boxes[1][i][j])
+                right_bottom = (boxes[0][i][j]+boxes[2][i][j],boxes[1][i][j]+boxes[3][i][j])
+                if check_point_inbound(left_top,300,300) and check_point_inbound(right_bottom,300,300) : 
+                    cv2.rectangle(img, left_top, right_bottom, (0,255,0), 1)
+                    cv2.putText(img, "ID: " + str(trackid[i][j]), (left_top[0]+5, left_top[1]+10), cv2.FONT_HERSHEY_SIMPLEX, 0.3, (0, 255, 0), 1, cv2.LINE_AA)
+    
+    
+    return img
+  
 # Main image processing routine.
-def process_image(img, select_threshold=0.4, nms_threshold=0.45, net_shape=(300, 300)):
+def process_image(concat_img,h_state,cell_state):
     # Run SSD network.
-    rimg, rpredictions, rlocalisations, rbbox_img = isess.run([image_4d, predictions, localisations, bbox_img],
-                                                              feed_dict={img_input: img})
+    logits, coord_logits, lstm_state = isess.run([mynet.logits, mynet.coord_logits, mynet.lstm_state],
+                                                              feed_dict={img_input: concat_img, h_state_init: h_state, cell_state_init: cell_state})
     
-    # Get classes and bboxes from the net outputs.
-    rclasses, rscores, rbboxes = np_methods.ssd_bboxes_select(
-            rpredictions, rlocalisations, ssd_anchors,
-            select_threshold=select_threshold, img_shape=net_shape, num_classes=21, decode=True)
+    cell_state = lstm_state[0]
+    h_state = lstm_state[1]
     
-    rbboxes = np_methods.bboxes_clip(rbbox_img, rbboxes)
-    rclasses, rscores, rbboxes = np_methods.bboxes_sort(rclasses, rscores, rbboxes, top_k=400)
-    rclasses, rscores, rbboxes = np_methods.bboxes_nms(rclasses, rscores, rbboxes, nms_threshold=nms_threshold)
-    # Resize bboxes to original image shape. Note: useless for Resize.WARP!
-    rbboxes = np_methods.bboxes_resize(rbbox_img, rbboxes)
-    return rclasses, rscores, rbboxes
+    confidence, boxes, newtrack_conf, trackid = process_logits(logits)
+    confidence2, boxes2 = process_coord_logits(coord_logits)
+    
+    result_img = draw_frame(concat_img[0][...,0:3].copy(), confidence2, boxes2, newtrack_conf, trackid)
+    cv2.imshow("result",result_img)
+    cv2.waitKey(1)
+    
+    return h_state, cell_state
 	
 
-def video_detector(video):
-    detect_timer = Timer()
-    cap = cv2.VideoCapture(video)
-    ret, _ = cap.read()
+def tf_track():
 
-    while ret:
-        ret, frame = cap.read()
-		
-        if frame is None:
-            break
+    detect_timer = Timer()
+    # cap = cv2.VideoCapture(video)
+    # ret, _ = cap.read()
+
+    h_state = np.zeros(768).reshape(1,768).astype(np.float32)
+    cell_state = np.zeros(768).reshape(1,768).astype(np.float32)
+    
+    for string_record in tf.python_io.tf_record_iterator(path=test_tf):
+        example = tf.train.Example()
+        example.ParseFromString(string_record)
+        
+        concat_img = feature_decode(example)
 		
         detect_timer.tic()
-        rclasses, rscores, rbboxes =  process_image(frame)
+        h_state, cell_state =  process_image(concat_img, h_state, cell_state)
 
         # visualization.bboxes_draw_on_img(img, rclasses, rscores, rbboxes, visualization.colors_plasma)
-        visualization.display_video(frame, rclasses, rscores, rbboxes)
+        #visualization.display_video(frame, rclasses, rscores, rbboxes)
 		
         detect_timer.toc()
+        print('detecting time: {:.3f}s'.format(detect_timer.diff))
     print('Average detecting time: {:.3f}s'.format(detect_timer.average_time))
         
 	
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--video', default="", type=str)
+    # parser.add_argument('--video', default="", type=str)
 	
-    args = parser.parse_args()
+    # args = parser.parse_args()
 
     # detect from camera
     # cap = cv2.VideoCapture(-1)
     # detector.camera_detector(cap)
 
     # detect from video file
-    video_detector(args.video)
+    tf_track()
 
 
 if __name__ == '__main__':

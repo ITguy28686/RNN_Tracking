@@ -11,7 +11,7 @@ class Network:
     def __init__(self, is_training):
         
         self.cell_size = 8
-        self.coordloss_scale = 1
+        self.coordloss_scale = 5
         self.confloss_scale = 20
         self.track_confloss_scale = 300
         self.trackloss_scale = 10
@@ -38,8 +38,10 @@ class Network:
             
             mynet = Model(self.x_nchw, self.h_state_init, self.cell_state_init, self.is_training, self.keep_prob)
 
-            logits = mynet.logits
-            coord_logits = mynet.coord_logits
+            coord_flow = mynet.coord_flow
+            association_flow = mynet.association_flow
+            coord_flow2 = mynet.coord_flow2
+            
             # print(logits)
             #self._calc_accuracy(logits, self.y)
 
@@ -53,9 +55,11 @@ class Network:
                             
                 # total_loss = loss1 + loss2
                 
-                coord_loss = self.coord_loss_function(coord_logits,self.track_y)
-                logits_loss = self.loss_function(logits,self.track_y)
-                self.total_loss = coord_loss + logits_loss
+                coord_loss = self.coord_loss_function(coord_flow,self.track_y)
+                ass_loss = self.association_loss(association_flow,self.track_y)
+                coord_loss2 = self.coord_loss_function(coord_flow2,self.track_y)
+                
+                self.total_loss = coord_loss + ass_loss + coord_loss2
                 
                 tf.summary.scalar("total_loss", self.total_loss)
                 
@@ -194,6 +198,32 @@ class Network:
             tf.summary.scalar("conf_loss2", conf_loss)
       
         return coord_loss + conf_loss
+    
+    def association_loss(self, tensor_x, label_y):
+
+        tensors = tf.reshape(tensor_x,(-1,self.cell_size,self.cell_size,2))
+        labels = tf.reshape(label_y,(-1,self.cell_size,self.cell_size,7))
+        batch_size = tf.shape(tensor_x)[0]
+        
+        predict_newtrack_conf = tensors[:,:,:,0]
+        predict_trackid = tf.cast(tensors[:,:,:,1],tf.int32)
+        
+        label_newtrack_conf = labels[:,:,:,5]
+        label_trackid = tf.cast(labels[:,:,:,6],tf.int32)
+        
+        with tf.name_scope('track_conf_loss'):
+            track_conf_delta = label_newtrack_conf - predict_newtrack_conf
+            track_conf_loss = tf.reduce_mean(tf.reduce_sum(tf.square(track_conf_delta), reduction_indices=[1, 2])) * self.track_confloss_scale
+            tf.summary.scalar("track_conf_loss", track_conf_loss)
+        
+        with tf.name_scope('track_loss'):
+            track_fail_mask = tf.not_equal(label_trackid, predict_trackid)
+            track_fail = tf.cast(track_fail_mask, tf.float32)
+            track_loss = tf.reduce_mean(tf.reduce_sum(track_fail, reduction_indices=[1, 2])) * self.trackloss_scale
+            
+            tf.summary.scalar("track_loss", track_loss)
+            
+        return track_conf_loss + track_loss
     
     @staticmethod
     def print_model():

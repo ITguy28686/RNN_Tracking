@@ -87,7 +87,7 @@ class Learning:
                         gs = self._train_step(sess,
                                            tf.RunOptions(trace_level=tf.RunOptions.FULL_TRACE),
                                            tf.RunMetadata())
-                        save_path = self.net.saver.save(sess, self.chkpt_file)
+                        save_path = self.net.saver.save(sess, self.chkpt_file, global_step=step_num)
                         print("Model saved in file: %s" % save_path)
 
                     else:

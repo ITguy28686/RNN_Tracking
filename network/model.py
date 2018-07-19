@@ -19,7 +19,7 @@ class Model:
         self.h_state_init = h_state_init
         self.cell_state_init = cell_state_init
         
-        self.logits, self.coord_logits, self.lstm_state = self.mynet(self.mat_x, self.h_state_init, self.cell_state_init, data_format)
+        self.coord_flow, self.association_flow, self.coord_flow2, self.lstm_state = self.mynet(self.mat_x, self.h_state_init, self.cell_state_init, data_format)
     
     def mynet(self, mat_x, h_state_init, cell_state_init, data_format='NCHW') :
         with slim.arg_scope([slim.conv2d, slim.fully_connected],
@@ -36,7 +36,7 @@ class Model:
             img_flow = slim.repeat(img_flow, 1, slim.conv2d, 256, [3, 3], stride=2, data_format=data_format, padding='SAME', scope='conv5_pool')
             img_flow = slim.repeat(img_flow, 1, slim.conv2d, 256, [3, 3], data_format=data_format, scope='conv6')
             img_flow = slim.repeat(img_flow, 1, slim.conv2d, 256, [3, 3], stride=2, data_format=data_format, padding='SAME', scope='conv7_pool')
-            coord_flow = img_flow
+            coord_flow2 = img_flow
             img_flow = slim.repeat(img_flow, 1, slim.conv2d, 256, [3, 3], data_format=data_format, scope='conv8')
             img_flow = slim.repeat(img_flow, 1, slim.conv2d, 512, [3, 3], stride=2, data_format=data_format, padding='SAME', scope='conv9_pool')
             img_flow = slim.repeat(img_flow, 1, slim.conv2d, 256, [3, 3], data_format=data_format, scope='conv10')
@@ -45,22 +45,31 @@ class Model:
             #LSTM_layer
             # tensro_size (w*h*channel)
             # (batch_size, channel, w, h) -> (1, batch_size, tensor_size)
+            if data_format == 'NHWC' :
+                img_flow = tf.transpose(img_flow, perm=[0,3,1,2])
+                
             img_flow = tf.reshape(img_flow, ( 1, -1, np.prod(img_flow.get_shape().as_list()[1:])))
             img_flow, lstm_state = self._lstm_layer(input = img_flow, num_units = 768, h_state_init = h_state_init, cell_state_init = cell_state_init, scope='LSTM_1')
             
             #a fc layer 
-            img_flow = slim.fully_connected(img_flow, 512, scope='fc_1')
+            coord_flow = slim.fully_connected(img_flow, 512, scope='fc_1')
+            association_flow = slim.fully_connected(img_flow, 256, scope='fc_2')
             
             #second output layer
-            img_flow = slim.fully_connected(img_flow, self.cell_size*self.cell_size*7, scope='final', activation_fn=None)
+            coord_flow = slim.fully_connected(coord_flow, self.cell_size*self.cell_size*5, scope='coord_final', activation_fn=tf.nn.sigmoid)
+            association_flow = slim.fully_connected(association_flow, self.cell_size*self.cell_size*2, scope='association_final', activation_fn=None)
             
-            coord_flow = slim.repeat(coord_flow, 1, slim.conv2d, 256, [3, 3], data_format=data_format, scope='coord_conv1')
-            coord_flow = slim.repeat(coord_flow, 1, slim.conv2d, 512, [3, 3], stride=2, data_format=data_format, padding='SAME', scope='coord_conv2_pool')
-            coord_flow = tf.reshape(coord_flow, (-1,np.prod(coord_flow.get_shape().as_list()[1:])))
-            coord_flow = slim.fully_connected(coord_flow, 512, scope='coord_fc')
-            coord_flow = slim.fully_connected(coord_flow, self.cell_size*self.cell_size*5, scope='coord_final', activation_fn=None)
+            coord_flow2 = slim.repeat(coord_flow2, 1, slim.conv2d, 256, [3, 3], data_format=data_format, scope='coord_conv1')
+            coord_flow2 = slim.repeat(coord_flow2, 1, slim.conv2d, 512, [3, 3], stride=2, data_format=data_format, padding='SAME', scope='coord_conv2_pool')
+            
+            if data_format == 'NHWC' :
+                coord_flow2 = tf.transpose(coord_flow2, perm=[0,3,1,2])
+            
+            coord_flow2 = tf.reshape(coord_flow2, (-1,np.prod(coord_flow2.get_shape().as_list()[1:])))
+            coord_flow2 = slim.fully_connected(coord_flow2, 512, scope='coord2_fc')
+            coord_flow2 = slim.fully_connected(coord_flow2, self.cell_size*self.cell_size*5, scope='coord2_final', activation_fn=tf.nn.sigmoid)
 
-            return img_flow, coord_flow, lstm_state
+            return coord_flow, association_flow, coord_flow2, lstm_state
 
     def _lstm_layer(self, input, num_units, h_state_init, cell_state_init, scope='LSTM'):
         with tf.variable_scope(scope):

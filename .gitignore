@@ -2,3 +2,5 @@ train_tf
 train_tf/*
 network/logs
 network/logs/*
+__pycache__
+__pycache__/*

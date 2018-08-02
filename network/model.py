@@ -11,7 +11,8 @@ FLAGS = tf.app.flags.FLAGS
 class Model:
     def __init__(self, mat_x, h_state_init, cell_state_init, is_training, keep_prob, data_format='NCHW'):
     
-        self.cell_size = 8
+        self.cell_size = 9
+        self.track_num = 30
     
         self.mat_x = mat_x
         self.is_training = is_training
@@ -19,57 +20,55 @@ class Model:
         self.h_state_init = h_state_init
         self.cell_state_init = cell_state_init
         
-        self.coord_flow, self.association_flow, self.coord_flow2, self.lstm_state = self.mynet(self.mat_x, self.h_state_init, self.cell_state_init, data_format)
+        self.coord_flow, self.association_flow, self.lstm_state = self.mynet(self.mat_x, self.h_state_init, self.cell_state_init, data_format)
     
     def mynet(self, mat_x, h_state_init, cell_state_init, data_format='NCHW') :
         with slim.arg_scope([slim.conv2d, slim.fully_connected],
                             activation_fn=tf.nn.leaky_relu,
                             trainable=self.is_training,
-                            weights_initializer=tf.truncated_normal_initializer(0.0, 0.01),
-                            weights_regularizer=slim.l2_regularizer(0.0005)):
+                            weights_initializer=tf.keras.initializers.he_normal(),
+                            weights_regularizer=slim.l2_regularizer(0.01)):
 
             #triple conv_pool
-            img_flow = slim.repeat(mat_x, 1, slim.conv2d, 64, [3, 3], stride=2, data_format=data_format, padding='SAME', scope='conv1_pool')
-            img_flow = slim.repeat(img_flow, 1, slim.conv2d, 64, [3, 3], data_format=data_format, scope='conv2')
-            img_flow = slim.repeat(img_flow, 1, slim.conv2d, 128, [3, 3], stride=2, data_format=data_format, padding='SAME', scope='conv3_pool')
-            img_flow = slim.repeat(img_flow, 1, slim.conv2d, 128, [3, 3], data_format=data_format, scope='conv4')
-            img_flow = slim.repeat(img_flow, 1, slim.conv2d, 256, [3, 3], stride=2, data_format=data_format, padding='SAME', scope='conv5_pool')
-            img_flow = slim.repeat(img_flow, 1, slim.conv2d, 256, [3, 3], data_format=data_format, scope='conv6')
-            img_flow = slim.repeat(img_flow, 1, slim.conv2d, 256, [3, 3], stride=2, data_format=data_format, padding='SAME', scope='conv7_pool')
-            coord_flow2 = img_flow
-            img_flow = slim.repeat(img_flow, 1, slim.conv2d, 256, [3, 3], data_format=data_format, scope='conv8')
+            img_flow = slim.repeat(mat_x, 1, slim.conv2d, 128, [3, 3], stride=2, data_format=data_format, padding='SAME', scope='conv1_pool')
+            img_flow = slim.repeat(img_flow, 1, slim.conv2d, 128, [1, 1], data_format=data_format, scope='conv2')
+            img_flow = slim.repeat(img_flow, 1, slim.conv2d, 256, [3, 3], stride=2, data_format=data_format, padding='SAME', scope='conv3_pool')
+            img_flow = slim.repeat(img_flow, 1, slim.conv2d, 256, [1, 1], data_format=data_format, scope='conv4')
+            img_flow = slim.repeat(img_flow, 1, slim.conv2d, 512, [3, 3], stride=2, data_format=data_format, padding='SAME', scope='conv5_pool')
+            img_flow = slim.repeat(img_flow, 1, slim.conv2d, 256, [1, 1], data_format=data_format, scope='conv6')
+            img_flow = slim.repeat(img_flow, 1, slim.conv2d, 512, [3, 3], stride=2, data_format=data_format, padding='SAME', scope='conv7_pool')
+            img_flow = slim.repeat(img_flow, 1, slim.conv2d, 256, [1, 1], data_format=data_format, scope='conv8')
             img_flow = slim.repeat(img_flow, 1, slim.conv2d, 512, [3, 3], stride=2, data_format=data_format, padding='SAME', scope='conv9_pool')
-            img_flow = slim.repeat(img_flow, 1, slim.conv2d, 256, [3, 3], data_format=data_format, scope='conv10')
-            img_flow = slim.repeat(img_flow, 1, slim.conv2d, 64, [3, 3], data_format=data_format, scope='conv11')
             
-            #LSTM_layer
-            # tensro_size (w*h*channel)
-            # (batch_size, channel, w, h) -> (1, batch_size, tensor_size)
             if data_format == 'NHWC' :
                 img_flow = tf.transpose(img_flow, perm=[0,3,1,2])
                 
-            img_flow = tf.reshape(img_flow, ( 1, -1, np.prod(img_flow.get_shape().as_list()[1:])))
-            img_flow, lstm_state = self._lstm_layer(input = img_flow, num_units = 768, h_state_init = h_state_init, cell_state_init = cell_state_init, scope='LSTM_1')
+            tensor_flow = slim.flatten(img_flow, scope='flat_10')
+            tensor_flow = slim.fully_connected(tensor_flow, 2048, scope='fc_11' )
             
-            #a fc layer 
-            coord_flow = slim.fully_connected(img_flow, 512, scope='fc_1')
-            association_flow = slim.fully_connected(img_flow, 256, scope='fc_2')
-            
-            #second output layer
-            coord_flow = slim.fully_connected(coord_flow, self.cell_size*self.cell_size*5, scope='coord_final', activation_fn=tf.nn.sigmoid)
-            association_flow = slim.fully_connected(association_flow, self.cell_size*self.cell_size*2, scope='association_final', activation_fn=None)
-            
-            coord_flow2 = slim.repeat(coord_flow2, 1, slim.conv2d, 256, [3, 3], data_format=data_format, scope='coord_conv1')
-            coord_flow2 = slim.repeat(coord_flow2, 1, slim.conv2d, 512, [3, 3], stride=2, data_format=data_format, padding='SAME', scope='coord_conv2_pool')
-            
-            if data_format == 'NHWC' :
-                coord_flow2 = tf.transpose(coord_flow2, perm=[0,3,1,2])
-            
-            coord_flow2 = tf.reshape(coord_flow2, (-1,np.prod(coord_flow2.get_shape().as_list()[1:])))
-            coord_flow2 = slim.fully_connected(coord_flow2, 512, scope='coord2_fc')
-            coord_flow2 = slim.fully_connected(coord_flow2, self.cell_size*self.cell_size*5, scope='coord2_final', activation_fn=tf.nn.sigmoid)
+            # LSTM_layer
+            # tensro_size (w*h*channel)
+            # (batch_size, tensor_size) -> (1, batch_size, tensor_size) 
+            tensor_flow = tf.reshape(tensor_flow, ( 1, -1, tensor_flow.get_shape()[1]))
+            tensor_flow, lstm_state = self._lstm_layer(input = tensor_flow, num_units = 2048, h_state_init = h_state_init, cell_state_init = cell_state_init, scope='LSTM_1')
 
-            return coord_flow, association_flow, coord_flow2, lstm_state
+            coord_flow = slim.fully_connected(tensor_flow, 4096, scope='fc_12_coord')
+            coord_flow = slim.fully_connected(coord_flow, self.cell_size*self.cell_size*5, scope='coord_final', activation_fn=None)
+            
+            association_flow = slim.fully_connected(tensor_flow, 4096, scope='fc_12_association')
+            association_flow = slim.fully_connected(association_flow, self.cell_size*self.cell_size*self.track_num, scope='association_final', activation_fn=None)
+            
+            # coord_flow2 = slim.repeat(coord_flow2, 1, slim.conv2d, 512, [1, 1], data_format=data_format, scope='coord_conv1')
+            
+            # if data_format == 'NHWC' :
+                # coord_flow2 = tf.transpose(coord_flow2, perm=[0,3,1,2])
+            
+            # coord_flow2 = tf.reshape(coord_flow2, (-1,np.prod(coord_flow2.get_shape().as_list()[1:])))
+            # coord_flow2 = slim.fully_connected(coord_flow2, 512, scope='coord2_fc1' )
+            # coord_flow2 = slim.fully_connected(coord_flow2, 4096, scope='coord2_fc2' )
+            # coord_flow2 = slim.fully_connected(coord_flow2, self.cell_size*self.cell_size*(5+self.track_num), scope='coord2_final', activation_fn=None)
+
+            return coord_flow, association_flow, lstm_state
 
     def _lstm_layer(self, input, num_units, h_state_init, cell_state_init, scope='LSTM'):
         with tf.variable_scope(scope):

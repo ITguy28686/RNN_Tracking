@@ -15,7 +15,7 @@ from utils.timer import Timer
 import argparse
 
 
-chkpt_file = "network/logs/model.ckpt"
+chkpt_file = "network/logs/model.ckpt-54000"
 test_tf = "train_tf/MOT16-02-1_train.tfrecord"
 data_format='NCHW'
 
@@ -116,23 +116,16 @@ def process_coord_logits(tensor_x):
         
     return confidence, boxes
         
-def process_logits(tensor_x):
+def process_trackid_logits(tensor_x):
 
-    tensors = np.reshape(tensor_x,(cell_size,cell_size,7))
+    tensors = np.reshape(tensor_x,(cell_size,cell_size,2))
     
-    confidence = tensors[:,:,0]
-    predict_boxes = tensors[:,:,1:5]
-    newtrack_conf = tensors[:,:,5]
-    trackid = tensors[:,:,6].astype(np.int32)
+    newtrack_conf = tensors[:,:,0]
+    trackid = tensors[:,:,1].astype(np.int32)
 
-    boxes = np.stack([(predict_boxes[..., 0] + offset) / cell_size * 300,
-                 (predict_boxes[..., 1] + offset_tran) / cell_size * 300,
-                 np.square(predict_boxes[..., 2]) * 300,
-                 np.square(predict_boxes[..., 3]) * 300])
-    boxes = boxes.astype(np.int32)
     #boxes = np.transpose(boxes, [1, 2, 0])
          
-    return confidence, boxes, newtrack_conf, trackid
+    return newtrack_conf, trackid
     
 def check_point_inbound(point,width,height):
     if point[0] < 0 or point[0] > width or point[1] < 0 or point[1] > height :
@@ -145,7 +138,7 @@ def draw_frame(img, confidence, boxes, newtrack_conf, trackid):
     #print(img.shape)
     for i in range(cell_size):
         for j in range(cell_size):
-            if confidence[i][j] > 0.8 :
+            if confidence[i][j] > 0.5 :
                 #print(boxes[0][i][j],boxes[1][i][j],boxes[2][i][j],boxes[3][i][j])
                 left_top = (boxes[0][i][j],boxes[1][i][j])
                 right_bottom = (boxes[0][i][j]+boxes[2][i][j],boxes[1][i][j]+boxes[3][i][j])
@@ -159,21 +152,30 @@ def draw_frame(img, confidence, boxes, newtrack_conf, trackid):
 # Main image processing routine.
 def process_image(concat_img,h_state,cell_state,frame_gt):
     # Run SSD network.
-    logits, coord_logits, lstm_state = isess.run([mynet.logits, mynet.coord_logits, mynet.lstm_state],
-                                                              feed_dict={img_input: concat_img, h_state_init: h_state, cell_state_init: cell_state})
+    # coord_flow, association_flow, coord_flow2, lstm_state = isess.run([mynet.coord_flow, mynet.association_flow, mynet.coord_flow2, mynet.lstm_state],
+                                                              # feed_dict={img_input: concat_img, h_state_init: h_state, cell_state_init: cell_state})
+                                                              
+    coord_flow2 = isess.run([mynet.coord_flow2],feed_dict={img_input: concat_img, h_state_init: h_state, cell_state_init: cell_state})
     
     #print(lstm_state.c,lstm_state.h)
-    cell_state = lstm_state.c
-    h_state = lstm_state.h
+    # cell_state = lstm_state.c
+    # h_state = lstm_state.h
     
-    confidence, boxes, newtrack_conf, trackid = process_logits(logits)
-    confidence2, boxes2 = process_coord_logits(coord_logits)
-    loss = coord_loss(coord_logits,frame_gt)
+    
+    newtrack_conf = np.zeros(8*8)
+    trackid = np.zeros(8*8).reshape(8,8)
+    
+    # newtrack_conf, trackid = process_trackid_logits(association_flow)
+    confidence, boxes = process_coord_logits(coord_flow2)
+    #loss = coord_loss(coord_flow,frame_gt)
     #print("loss: " + str(loss))
     
-    result_img = draw_frame(concat_img[0][...,0:3].copy(), confidence2, boxes2, newtrack_conf, trackid)
+    result_img = draw_frame(concat_img[0][...,0:3].copy(), confidence, boxes, newtrack_conf, trackid)
+    det_mask = concat_img[0][...,3].copy()
+    
+    cv2.imshow("det_mask",det_mask)
     cv2.imshow("result",result_img)
-    cv2.waitKey(1)
+    cv2.waitKey(0)
     
     return h_state, cell_state
 	

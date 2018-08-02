@@ -11,7 +11,8 @@ from utils.dataset_utils import int64_feature, float_feature, bytes_feature
 
 
 MOT_DIR = "D:\DataSet\MOT16"
-cell_size = 8
+cell_size = 9
+track_num = 30
 
 def get_frame_gt(frame_idx, gt_array, last_trackid):
 
@@ -20,7 +21,7 @@ def get_frame_gt(frame_idx, gt_array, last_trackid):
     
     rows = gt_array[mask]
 
-    gt_tensor = np.zeros((cell_size,cell_size,7),dtype=np.float32)
+    gt_tensor = np.zeros((cell_size,cell_size,5+track_num),dtype=np.float32)
 
     for i in range(rows.shape[0]):
         gt_tensor, last_trackid = encode_label(rows[i],gt_tensor, last_trackid)
@@ -35,20 +36,20 @@ def get_frame_gt(frame_idx, gt_array, last_trackid):
     
     return frame_gt, last_trackid
     
-def get_frame_imgmask(frame_idx, det_array, img_files):
+def get_frame_imgmask(frame_idx, gt_array, img_files):
 
     #get mask
-    frame_indices = det_array[:, 0].astype(np.int)
+    frame_indices = gt_array[:, 0].astype(np.int)
     mask = frame_indices == frame_idx
-    rows = det_array[mask]
+    rows = gt_array[mask]
     
     mask_img = np.zeros((300,300,1), np.float32)
 
     for i in range(rows.shape[0]):
-        mask_x = int(300 * rows[i][1])
-        mask_y = int(300 * rows[i][2])
-        mask_w = int(300 * rows[i][3])
-        mask_h = int(300 * rows[i][4])
+        mask_x = int(300 * rows[i][2])
+        mask_y = int(300 * rows[i][3])
+        mask_w = int(300 * rows[i][4])
+        mask_h = int(300 * rows[i][5])
         
         # if(mask_x >= 300 or mask_y>= 300):
             # print('%f,%f  %f,%f' % (rows[i][1],rows[i][2],mask_x,mask_y))
@@ -123,7 +124,7 @@ def encode_label(row,gt_tensor,last_trackid):
     #boxes = [row[2] + row[4] / 2.0, row[3] + row[5] / 2.0, row[4], row[5]]
     boxes = row[2:6]
 
-    track_id = row[1]
+    track_id = int(row[1])
     
     x_ind = int(boxes[0] * cell_size)
     y_ind = int(boxes[1] * cell_size)
@@ -135,14 +136,10 @@ def encode_label(row,gt_tensor,last_trackid):
     gt_tensor[y_ind, x_ind, 1:5] = boxes
     
     if(track_id > last_trackid):
-        gt_tensor[y_ind, x_ind, 5] = 1
         last_trackid += 1
         #print(last_trackid)
-    else:
-        gt_tensor[y_ind, x_ind, 5] = 0
     
-    gt_tensor[y_ind, x_ind, 6] = track_id
-
+    gt_tensor[y_ind, x_ind, 5+track_id-1] = 1
 
     return gt_tensor, last_trackid
 
@@ -190,22 +187,26 @@ def run(output_dir):
                     det_file = os.path.join(train_data_dir,"det2_"+ str(index)+".npy")
                     gt_file = os.path.join(train_data_dir,"hypotheses.txt_"+ str(index))
                     
-                    if not os.path.exists(det_file):
+                    if not os.path.exists(gt_file):
                         break
-                    
+
                     tf_filename = '%s/%s-%d_train.tfrecord' % (output_dir,mot_dir_name,index)
                     print("Processing %s..." % tf_filename)
-                    det_array = np.load(det_file)
-                    
-                    frame_indices = det_array[:, 0].astype(np.int)
-                    min_frame_idx = frame_indices.astype(np.int).min()
-                    max_frame_idx = frame_indices.astype(np.int).max()
+                    #det_array = np.load(det_file)
                     
                     gt_array = np.loadtxt(gt_file, delimiter=',')
                     
+                    if not len(gt_array):
+                        index += 1
+                        continue
+                    
+                    frame_indices = gt_array[:, 0].astype(np.int)
+                    min_frame_idx = frame_indices.astype(np.int).min()
+                    max_frame_idx = frame_indices.astype(np.int).max()
+                    
                     last_trackid = 0
                     with tf.python_io.TFRecordWriter(tf_filename) as tfrecord_writer:
-                        for frame_idx in range(min_frame_idx, max_frame_idx + 1):
+                        for frame_idx in range(min_frame_idx+2, max_frame_idx + 1):
 
                             if frame_idx not in img_files:
                                 continue
@@ -213,11 +214,13 @@ def run(output_dir):
                             #frame_det = get_frame_det(frame_idx, det_array, img_files)
                             frame_gt, last_trackid = get_frame_gt(frame_idx, gt_array, last_trackid)
                             
-                            frame_concate_mat_shape, frame_concat_mat = get_frame_imgmask(frame_idx, det_array, img_files)
+                            frame_concate_mat_shape, frame_concat_mat = get_frame_imgmask(frame_idx, gt_array, img_files)
                             
                             example = convert_to_example(frame_gt, frame_concate_mat_shape, frame_concat_mat)
                             tfrecord_writer.write(example.SerializeToString())
-                            
+                        
+                    if os.stat(tf_filename).st_size == 0 :
+                        os.remove(tf_filename)
                                    
                     index += 1
                     print("------\n")

@@ -50,9 +50,16 @@ class Reader:
         frame_mat_shape = example.features.feature['frame_concate_mat_shape'].int64_list.value
         frame_mat_string = example.features.feature['frame_concat_mat'].bytes_list.value[0]
         frame_mat = np.fromstring(frame_mat_string, dtype=np.float32).reshape(frame_mat_shape)
-
-        #cv2.imshow("Image", frame_img)
-        #cv2.waitKey(0)
+        
+        # a = np.array(frame_gt).reshape(9,9,35)
+        # for i in range(9):
+            # for j in range(9):
+                # if a[i][j][0] > 0:
+                    # print("a[%d][%d]: (%f,%f,%f,%f,%f)" % (i,j,a[i][j][0],a[i][j][1],a[i][j][2],a[i][j][3],a[i][j][4]))
+        
+        # cv2.imshow("Image", frame_mat[:,:,0:3].copy())
+        # cv2.imshow("Mask", frame_mat[:,:,3].copy())
+        # cv2.waitKey(0)
         
         return frame_gt, frame_mat
         

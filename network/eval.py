@@ -2,6 +2,7 @@ import tensorflow as tf
 from dataset import Reader
 from network.network import Network
 import numpy as np
+import tensorflow.contrib.slim as slim
 
 import config
 
@@ -15,9 +16,9 @@ class Learning:
         self.logs_dir = FLAGS.logdir
         self.train_logs_path = self.logs_dir + '/train_logs'
         
-        self.chkpt_file = self.logs_dir + "/model.ckpt"
-        self.h_state_init = np.zeros(768).reshape(1,768).astype(np.float32)
-        self.cell_state_init = np.zeros(768).reshape(1,768).astype(np.float32)
+        #self.chkpt_file = self.logs_dir + "/model.ckpt-54000"
+        self.h_state_init = np.zeros(2048).reshape(1,2048).astype(np.float32)
+        self.cell_state_init = np.zeros(2048).reshape(1,2048).astype(np.float32)
 
         self.is_training = True
         self._evaluate_train()
@@ -59,7 +60,15 @@ class Learning:
     def _restore_checkpoint_or_init(self, sess):
         import os
         if FLAGS.restore:
-            self.net.saver.restore(sess, self.chkpt_file)
+            init_fn = get_init_fn(FLAGS.chkpt_file, config.exclusion_vars, FLAGS.ignore_missing_vars)
+            
+            sess.run(tf.local_variables_initializer())
+            sess.run(tf.global_variables_initializer())
+            init_fn(sess)
+                   
+            global_step_init = self.net.global_step.assign(0)
+            sess.run(global_step_init)
+            
             print("Model restored.")
         else:
             sess.run(tf.local_variables_initializer())
@@ -78,6 +87,7 @@ class Learning:
             config.gpu_options.per_process_gpu_memory_fraction = 0.8
             
             with tf.Session(graph=self.net.graph,config=config) as sess:
+                
                 self._restore_checkpoint_or_init(sess)
 
                 step_num = 1
@@ -87,9 +97,49 @@ class Learning:
                         gs = self._train_step(sess,
                                            tf.RunOptions(trace_level=tf.RunOptions.FULL_TRACE),
                                            tf.RunMetadata())
-                        save_path = self.net.saver.save(sess, self.chkpt_file, global_step=step_num)
+                        save_path = self.net.saver.save(sess, self.logs_dir + "/model.ckpt", global_step=self.net.global_step)
                         print("Model saved in file: %s" % save_path)
 
                     else:
                         gs = self._train_step(sess)
                     step_num += 1
+
+                    
+def get_init_fn(checkpoint_path, exclusions, ignore_missing_vars=True):
+    """Returns a function run by the chief worker to warm-start the training.
+    Note that the init_fn is only run when initializing the model during the very
+    first global step.
+
+    Returns:
+      An init function run by the supervisor.
+    """
+
+    # exclusions = []
+    # if checkpoint_exclude_scopes:
+        # exclusions = [scope.strip()
+                      # for scope in checkpoint_exclude_scopes.split(',')]
+
+    # TODO(sguada) variables.filter_variables()
+    variables_to_restore = []
+    for var in slim.get_model_variables():
+        excluded = False
+        for exclusion in exclusions:
+            if var.op.name.startswith(exclusion):
+                excluded = True
+                break
+        if not excluded:
+            variables_to_restore.append(var)
+
+    if tf.gfile.IsDirectory(checkpoint_path):
+        checkpoint_path = tf.train.latest_checkpoint(checkpoint_path)
+    else:
+        checkpoint_path = checkpoint_path
+    #print('Fine-tuning from %s. Ignoring missing vars: %s' % (checkpoint_path, ignore_missing_vars))
+
+    return slim.assign_from_checkpoint_fn(
+        checkpoint_path,
+        variables_to_restore,
+        ignore_missing_vars=ignore_missing_vars)
+                    
+                    
+                    

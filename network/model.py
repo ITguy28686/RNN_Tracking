@@ -20,7 +20,7 @@ class Model:
         self.h_state_init = h_state_init
         self.cell_state_init = cell_state_init
         
-        self.coord_flow, self.association_flow, self.lstm_state = self.mynet(self.mat_x, self.h_state_init, self.cell_state_init, data_format)
+        self.coord_flow, self.association_flow, self.rnn_state = self.mynet(self.mat_x, self.h_state_init, self.cell_state_init, data_format)
     
     def mynet(self, mat_x, h_state_init, cell_state_init, data_format='NCHW') :
         with slim.arg_scope([slim.conv2d, slim.fully_connected],
@@ -44,13 +44,14 @@ class Model:
                 img_flow = tf.transpose(img_flow, perm=[0,3,1,2])
                 
             tensor_flow = slim.flatten(img_flow, scope='flat_10')
-            tensor_flow = slim.fully_connected(tensor_flow, 2048, scope='fc_11' )
+            tensor_flow = slim.fully_connected(tensor_flow, 4096, scope='fc_11' )
             
             # LSTM_layer
             # tensro_size (w*h*channel)
             # (batch_size, tensor_size) -> (1, batch_size, tensor_size) 
             tensor_flow = tf.reshape(tensor_flow, ( 1, -1, tensor_flow.get_shape()[1]))
-            tensor_flow, lstm_state = self._lstm_layer(input = tensor_flow, num_units = 2048, h_state_init = h_state_init, cell_state_init = cell_state_init, scope='LSTM_1')
+            # tensor_flow, rnn_state = self._lstm_layer(input = tensor_flow, num_units = 2048, h_state_init = h_state_init, cell_state_init = cell_state_init, scope='LSTM_1')
+            tensor_flow, rnn_state = self._gru_layer(input = tensor_flow, num_units = 4096, h_state_init = h_state_init, scope='GRU')
 
             coord_flow = slim.fully_connected(tensor_flow, 4096, scope='fc_12_coord')
             coord_flow = slim.fully_connected(coord_flow, self.cell_size*self.cell_size*5, scope='coord_final', activation_fn=None)
@@ -68,8 +69,9 @@ class Model:
             # coord_flow2 = slim.fully_connected(coord_flow2, 4096, scope='coord2_fc2' )
             # coord_flow2 = slim.fully_connected(coord_flow2, self.cell_size*self.cell_size*(5+self.track_num), scope='coord2_final', activation_fn=None)
 
-            return coord_flow, association_flow, lstm_state
-
+            return coord_flow, association_flow, rnn_state
+            
+    """
     def _lstm_layer(self, input, num_units, h_state_init, cell_state_init, scope='LSTM'):
         with tf.variable_scope(scope):
 
@@ -82,17 +84,33 @@ class Model:
             # shape = pre_rnn_outputs.get_shape()
             # rnn_outputs = tf.reshape(pre_rnn_outputs, (-1 , shape[2]))
             
-            
             cell = tf.contrib.rnn.LSTMCell(num_units = num_units, initializer=tf.initializers.orthogonal(), activation=tf.nn.relu6)
             
             lstm_init = tf.contrib.rnn.LSTMStateTuple(cell_state_init,h_state_init)
             outputs, state = tf.nn.dynamic_rnn(cell, input, initial_state=lstm_init)
             
-            out_shape = outputs.get_shape()
-            rnn_outputs = tf.reshape(outputs, (-1, out_shape[2]))
+            rnn_outputs = tf.reshape(outputs, (-1, num_units))
 
             return rnn_outputs, state
+    """
+    
+    def _gru_layer(self, input, num_units, h_state_init, scope='GRU'):
+        with tf.variable_scope(scope):
             
+            cell = tf.contrib.rnn.GRUCell(num_units = num_units, activation=tf.nn.relu6)
+            rnn_cells = tf.contrib.rnn.MultiRNNCell([cell] * 2, state_is_tuple=True)
+            
+            gru_init = h_state_init
+            #gru_init = rnn_cells.zero_state(1, tf.float32)
+            
+            outputs, state = tf.nn.dynamic_rnn(rnn_cells, input, initial_state=gru_init)
+            
+            rnn_outputs = tf.reshape(outputs, (-1, num_units))
+
+            return rnn_outputs, state
+
+
+    
     def tenor_img_concat(self, det_prepared_concat, img_flow, scope='Concat'):
         with tf.variable_scope(scope):
             img_shape = img_flow.get_shape()

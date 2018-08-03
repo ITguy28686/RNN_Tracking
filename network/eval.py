@@ -17,8 +17,9 @@ class Learning:
         self.train_logs_path = self.logs_dir + '/train_logs'
         
         #self.chkpt_file = self.logs_dir + "/model.ckpt-54000"
-        self.h_state_init = np.zeros(2048).reshape(1,2048).astype(np.float32)
-        self.cell_state_init = np.zeros(2048).reshape(1,2048).astype(np.float32)
+        self.h_state_init_1 = np.zeros(4096).reshape(1,4096).astype(np.float32)
+        self.h_state_init_2 = np.zeros(4096).reshape(1,4096).astype(np.float32)
+        self.cell_state_init = np.zeros(4096).reshape(1,4096).astype(np.float32)
 
         self.is_training = True
         self._evaluate_train()
@@ -53,18 +54,19 @@ class Learning:
         
         return {self.net.x: frame_x_batch,
                 self.net.track_y: frame_gt_batch,
-                self.net.h_state_init: self.h_state_init,
+                self.net.h_state_init_1: self.h_state_init_1,
+                self.net.h_state_init_2: self.h_state_init_2,
                 self.net.cell_state_init: self.cell_state_init
                 }
 
     def _restore_checkpoint_or_init(self, sess):
         import os
         if FLAGS.restore:
+                
             init_fn = get_init_fn(FLAGS.chkpt_file, config.exclusion_vars, FLAGS.ignore_missing_vars)
             
-            sess.run(tf.local_variables_initializer())
-            sess.run(tf.global_variables_initializer())
             init_fn(sess)
+            initialize_uninitialized(sess)
                    
             global_step_init = self.net.global_step.assign(0)
             sess.run(global_step_init)
@@ -130,6 +132,9 @@ def get_init_fn(checkpoint_path, exclusions, ignore_missing_vars=True):
         if not excluded:
             variables_to_restore.append(var)
 
+    for temp in variables_to_restore:
+        print(temp)
+        
     if tf.gfile.IsDirectory(checkpoint_path):
         checkpoint_path = tf.train.latest_checkpoint(checkpoint_path)
     else:
@@ -142,4 +147,15 @@ def get_init_fn(checkpoint_path, exclusions, ignore_missing_vars=True):
         ignore_missing_vars=ignore_missing_vars)
                     
                     
-                    
+def initialize_uninitialized(sess):
+    global_vars = tf.global_variables()
+    is_not_initialized = sess.run([tf.is_variable_initialized(var) for var in global_vars])
+    not_initialized_vars = [v for (v, f) in zip(global_vars, is_not_initialized) if not f]
+
+    # for i in not_initialized_vars: # only for testing
+    #    print(i.name)
+
+    if len(not_initialized_vars):
+        sess.run(tf.variables_initializer(not_initialized_vars))
+
+        

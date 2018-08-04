@@ -19,7 +19,7 @@ class Learning:
         #self.chkpt_file = self.logs_dir + "/model.ckpt-54000"
         self.h_state_init_1 = np.zeros(4096).reshape(1,4096).astype(np.float32)
         self.h_state_init_2 = np.zeros(4096).reshape(1,4096).astype(np.float32)
-        self.cell_state_init = np.zeros(4096).reshape(1,4096).astype(np.float32)
+        #self.cell_state_init = np.zeros(4096).reshape(1,4096).astype(np.float32)
 
         self.is_training = True
         self._evaluate_train()
@@ -55,14 +55,18 @@ class Learning:
         return {self.net.x: frame_x_batch,
                 self.net.track_y: frame_gt_batch,
                 self.net.h_state_init_1: self.h_state_init_1,
-                self.net.h_state_init_2: self.h_state_init_2,
-                self.net.cell_state_init: self.cell_state_init
+                self.net.h_state_init_2: self.h_state_init_2
+                #self.net.cell_state_init: self.cell_state_init
                 }
 
     def _restore_checkpoint_or_init(self, sess):
         import os
         if FLAGS.restore:
-                
+            
+            # if len(config.exclusion_vars) == 0 :
+                # self.net.saver.restore(sess, FLAGS.chkpt_file)
+            
+            # else:
             init_fn = get_init_fn(FLAGS.chkpt_file, config.exclusion_vars, FLAGS.ignore_missing_vars)
             
             init_fn(sess)
@@ -123,17 +127,21 @@ def get_init_fn(checkpoint_path, exclusions, ignore_missing_vars=True):
 
     # TODO(sguada) variables.filter_variables()
     variables_to_restore = []
-    for var in slim.get_model_variables():
+    for var in slim.get_trainable_variables():
+        # print("VAR: " + str(var))
         excluded = False
         for exclusion in exclusions:
             if var.op.name.startswith(exclusion):
+                print("exclude: " + str(var))
                 excluded = True
                 break
         if not excluded:
             variables_to_restore.append(var)
 
-    for temp in variables_to_restore:
-        print(temp)
+    # print("/////////////restore vars")
+    # for temp in variables_to_restore:
+        # print(temp)
+    # print("/////////////\n")
         
     if tf.gfile.IsDirectory(checkpoint_path):
         checkpoint_path = tf.train.latest_checkpoint(checkpoint_path)
@@ -152,8 +160,10 @@ def initialize_uninitialized(sess):
     is_not_initialized = sess.run([tf.is_variable_initialized(var) for var in global_vars])
     not_initialized_vars = [v for (v, f) in zip(global_vars, is_not_initialized) if not f]
 
+    # print("************ uninitialized vars")
     # for i in not_initialized_vars: # only for testing
-    #    print(i.name)
+       # print(i.name)
+    # print("************\n")
 
     if len(not_initialized_vars):
         sess.run(tf.variables_initializer(not_initialized_vars))

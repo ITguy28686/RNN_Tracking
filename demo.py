@@ -15,11 +15,13 @@ from utils.timer import Timer
 import argparse
 
 
-chkpt_file = "network/logs/model.ckpt-54000"
-test_tf = "train_tf/MOT16-02-1_train.tfrecord"
+chkpt_file = "network/logs/model.ckpt-40000"
+test_tf = "train_tf/MOT16-02-0_train.tfrecord"
 data_format='NCHW'
 
-cell_size = 8
+cell_size = 9
+track_num = 30
+
 offset = np.reshape(np.array(
         [np.arange(cell_size)] * cell_size),
         (cell_size, cell_size))
@@ -37,11 +39,14 @@ if data_format == 'NCHW' :
     img_input2 = tf.transpose(img_input, perm=[0,3,1,2])
 else :
     img_input2 = img_input
-h_state_init = tf.placeholder(dtype=tf.float32, shape=(1, 768))
+    
+h_state_init_1 = tf.placeholder(dtype=tf.float32, shape=(1, 4096))
+h_state_init_2 = tf.placeholder(dtype=tf.float32, shape=(1, 4096))
+_h_state_init = tuple([h_state_init_1,h_state_init_2])
 cell_state_init = tf.placeholder(dtype=tf.float32, shape=(1, 768))
 
 graph = tf.Graph()
-mynet = Model(img_input2, h_state_init, cell_state_init, is_training=False, keep_prob=0, data_format=data_format)
+mynet = Model(img_input2, _h_state_init, cell_state_init, is_training=False, keep_prob=0, data_format=data_format)
 
 isess.run(tf.global_variables_initializer())
 
@@ -115,17 +120,15 @@ def process_coord_logits(tensor_x):
     # boxes = np.transpose(boxes, [2, 0, 1])
         
     return confidence, boxes
-        
+    
+    
 def process_trackid_logits(tensor_x):
 
-    tensors = np.reshape(tensor_x,(cell_size,cell_size,2))
-    
-    newtrack_conf = tensors[:,:,0]
-    trackid = tensors[:,:,1].astype(np.int32)
+    tensors = np.reshape(tensor_x,(cell_size,cell_size,track_num))
 
     #boxes = np.transpose(boxes, [1, 2, 0])
          
-    return newtrack_conf, trackid
+    return tensors
     
 def check_point_inbound(point,width,height):
     if point[0] < 0 or point[0] > width or point[1] < 0 or point[1] > height :
@@ -134,50 +137,52 @@ def check_point_inbound(point,width,height):
     
     
 
-def draw_frame(img, confidence, boxes, newtrack_conf, trackid):
+def draw_frame(img, confidence, boxes, trackid):
     #print(img.shape)
     for i in range(cell_size):
         for j in range(cell_size):
-            if confidence[i][j] > 0.5 :
+            if confidence[i][j] > 0.1 :
                 #print(boxes[0][i][j],boxes[1][i][j],boxes[2][i][j],boxes[3][i][j])
                 left_top = (boxes[0][i][j],boxes[1][i][j])
                 right_bottom = (boxes[0][i][j]+boxes[2][i][j],boxes[1][i][j]+boxes[3][i][j])
                 if check_point_inbound(left_top,300,300) and check_point_inbound(right_bottom,300,300) : 
                     cv2.rectangle(img, left_top, right_bottom, (0,255,0), 1)
-                    cv2.putText(img, "ID: " + str(trackid[i][j]), (left_top[0]+5, left_top[1]+10), cv2.FONT_HERSHEY_SIMPLEX, 0.3, (0, 255, 0), 1, cv2.LINE_AA)
+                    cv2.putText(img, "ID: " + str(np.argmax(trackid[i][j])), (left_top[0]+5, left_top[1]+10), cv2.FONT_HERSHEY_SIMPLEX, 0.3, (0, 255, 0), 1, cv2.LINE_AA)
     
     
     return img
   
 # Main image processing routine.
-def process_image(concat_img,h_state,cell_state,frame_gt):
+def process_image(concat_img,h_state_1,h_state_2,frame_gt):
     # Run SSD network.
     # coord_flow, association_flow, coord_flow2, lstm_state = isess.run([mynet.coord_flow, mynet.association_flow, mynet.coord_flow2, mynet.lstm_state],
                                                               # feed_dict={img_input: concat_img, h_state_init: h_state, cell_state_init: cell_state})
                                                               
-    coord_flow2 = isess.run([mynet.coord_flow2],feed_dict={img_input: concat_img, h_state_init: h_state, cell_state_init: cell_state})
+    coord_flow, association_flow, rnn_state = isess.run([mynet.coord_flow, mynet.association_flow, mynet.rnn_state],feed_dict={img_input: concat_img, h_state_init_1: h_state_1, h_state_init_2: h_state_2})
     
     #print(lstm_state.c,lstm_state.h)
     # cell_state = lstm_state.c
     # h_state = lstm_state.h
+    # print(rnn_state)
+    h_state_1 = rnn_state[0]
+    h_state_2 = rnn_state[1]
     
+    # newtrack_conf = np.zeros(8*8)
+    # trackid = np.zeros(8*8).reshape(8,8)
     
-    newtrack_conf = np.zeros(8*8)
-    trackid = np.zeros(8*8).reshape(8,8)
-    
-    # newtrack_conf, trackid = process_trackid_logits(association_flow)
-    confidence, boxes = process_coord_logits(coord_flow2)
+    trackid = process_trackid_logits(association_flow)
+    confidence, boxes = process_coord_logits(coord_flow)
     #loss = coord_loss(coord_flow,frame_gt)
     #print("loss: " + str(loss))
     
-    result_img = draw_frame(concat_img[0][...,0:3].copy(), confidence, boxes, newtrack_conf, trackid)
+    result_img = draw_frame(concat_img[0][...,0:3].copy(), confidence, boxes, trackid)
     det_mask = concat_img[0][...,3].copy()
     
     cv2.imshow("det_mask",det_mask)
     cv2.imshow("result",result_img)
     cv2.waitKey(0)
     
-    return h_state, cell_state
+    return h_state_1, h_state_2
 	
 
 def tf_track():
@@ -186,8 +191,10 @@ def tf_track():
     # cap = cv2.VideoCapture(video)
     # ret, _ = cap.read()
 
-    h_state = np.zeros(768).reshape(1,768).astype(np.float32)
-    cell_state = np.zeros(768).reshape(1,768).astype(np.float32)
+    h_state_1 = np.zeros(4096).reshape(1,4096).astype(np.float32)
+    h_state_2 = np.zeros(4096).reshape(1,4096).astype(np.float32)
+
+    #cell_state = np.zeros(4096).reshape(1,4096).astype(np.float32)
     
     for string_record in tf.python_io.tf_record_iterator(path=test_tf):
         example = tf.train.Example()
@@ -197,7 +204,7 @@ def tf_track():
 		
         detect_timer.tic()
         #print(h_state)
-        h_state, cell_state =  process_image(concat_img, h_state, cell_state, frame_gt)
+        h_state_1, h_state_2 =  process_image(concat_img, h_state_1, h_state_2, frame_gt)
 
         # visualization.bboxes_draw_on_img(img, rclasses, rscores, rbboxes, visualization.colors_plasma)
         #visualization.display_video(frame, rclasses, rscores, rbboxes)

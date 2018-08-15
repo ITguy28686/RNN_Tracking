@@ -33,8 +33,9 @@ def get_frame_gt(frame_idx, gt_array, last_trackid):
         # gt_tensor[i+64*5] = rows[i][5]  #h
 
     frame_gt = float_feature(gt_tensor.flatten().tolist())
+    frame_id = int64_feature(frame_idx)
     
-    return frame_gt, last_trackid
+    return frame_gt, frame_id, last_trackid
     
 def get_frame_imgmask(frame_idx, gt_array, img_files):
 
@@ -143,9 +144,10 @@ def encode_label(row,gt_tensor,last_trackid):
 
     return gt_tensor, last_trackid
 
-def convert_to_example(frame_gt, frame_concate_mat_shape, frame_concat_mat):
+def convert_to_example(frame_id, frame_gt, frame_concate_mat_shape, frame_concat_mat):
 
     example = tf.train.Example(features=tf.train.Features(feature={
+            'frame_id': frame_id,
             'frame_concate_mat_shape': frame_concate_mat_shape,
             'frame_gt': frame_gt,
             'frame_concat_mat': frame_concat_mat,
@@ -212,11 +214,11 @@ def run(output_dir):
                                 continue
                             
                             #frame_det = get_frame_det(frame_idx, det_array, img_files)
-                            frame_gt, last_trackid = get_frame_gt(frame_idx, gt_array, last_trackid)
+                            frame_gt, frame_id, last_trackid = get_frame_gt(frame_idx, gt_array, last_trackid)
                             
                             frame_concate_mat_shape, frame_concat_mat = get_frame_imgmask(frame_idx, gt_array, img_files)
                             
-                            example = convert_to_example(frame_gt, frame_concate_mat_shape, frame_concat_mat)
+                            example = convert_to_example(frame_id, frame_gt, frame_concate_mat_shape, frame_concat_mat)
                             tfrecord_writer.write(example.SerializeToString())
                         
                     if os.stat(tf_filename).st_size == 0 :

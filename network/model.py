@@ -11,7 +11,7 @@ FLAGS = tf.app.flags.FLAGS
 class Model:
     def __init__(self, mat_x, h_state_init, cell_state_init, is_training, keep_prob, data_format='NCHW'):
     
-        self.cell_size = 9
+        self.cell_size = 7
         self.boxes_per_cell = 3
         self.track_num = 30
     
@@ -65,7 +65,7 @@ class Model:
             association_flow = slim.dropout(
                     association_flow, keep_prob=keep_prob, is_training=self.is_training,
                     scope='dropout_association')
-            association_flow = slim.fully_connected(association_flow, self.cell_size*self.cell_size*self.track_num, scope='association_final', activation_fn=None)
+            association_flow = slim.fully_connected(association_flow, self.cell_size*self.cell_size*(self.cell_size*self.cell_size+1), scope='association_final', activation_fn=None)
             
             # coord_flow2 = slim.repeat(coord_flow2, 1, slim.conv2d, 512, [1, 1], data_format=data_format, scope='coord_conv1')
             

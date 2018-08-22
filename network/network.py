@@ -10,7 +10,7 @@ FLAGS = tf.app.flags.FLAGS
 class Network:
     def __init__(self, is_training):
         
-        self.cell_size = 9
+        self.cell_size = 7
         self.boxes_per_cell = 3
         self.track_num = 30
         
@@ -39,7 +39,7 @@ class Network:
             
             self.cell_state_init = tf.placeholder(dtype=tf.float32, shape=(1, 4096), name="cell_state_init")
             
-            self.track_y = tf.placeholder(dtype=tf.float32, shape=(None, self.cell_size*self.cell_size*(5+self.track_num)), name='track_label')
+            self.track_y = tf.placeholder(dtype=tf.float32, shape=(None, self.cell_size * self.cell_size * (5+self.cell_size*self.cell_size+1)), name='track_label')
             
             mynet = Model(self.x_nchw, _h_state_init, self.cell_state_init, self.is_training, keep_prob=0.5)
 
@@ -48,8 +48,8 @@ class Network:
 
             with tf.name_scope('Cost'):
                 
-                coord_loss = self.coord_loss_function(coord_flow,self.track_y,name='coord_loss')
-                ass_loss = self.association_loss(association_flow,self.track_y)
+                coord_loss = self.coord_loss_function(coord_flow, self.track_y, name='coord_loss')
+                ass_loss = self.association_loss(coord_flow, association_flow, self.track_y)
                 
                 reg_losses = tf.get_collection(tf.GraphKeys.REGULARIZATION_LOSSES)
                 
@@ -144,16 +144,16 @@ class Network:
     def coord_loss_function(self, bbox_tensor, label_y, name='coord_loss'):
 
         tensors = tf.reshape(bbox_tensor,(-1,self.cell_size,self.cell_size,self.boxes_per_cell,5))
-        labels = tf.reshape(label_y,(-1,self.cell_size,self.cell_size,5+self.track_num))
+        label_tensor = tf.reshape(label_y,(-1,self.cell_size,self.cell_size,5+self.cell_size*self.cell_size+1))
         batch_size = tf.shape(bbox_tensor)[0]
         
         predict_confidence = tensors[:,:,:,:,0] # shape = (batch_size,cell_size,cell_size,boxes_per_cell)
         predict_boxes = tensors[:,:,:,:,1:5] # shape = (batch_size,cell_size,cell_size,boxes_per_cell,4)
         
-        label_confidence = tf.reshape(labels[..., 0],
+        label_confidence = tf.reshape(label_tensor[..., 0],
                 [batch_size, self.cell_size, self.cell_size, 1])
         
-        label_boxes = tf.reshape(labels[..., 1:5],
+        label_boxes = tf.reshape(label_tensor[..., 1:5],
                 [batch_size, self.cell_size, self.cell_size, 1, 4])
         label_boxes = tf.tile(label_boxes, [1, 1, 1, self.boxes_per_cell, 1])
         
@@ -212,18 +212,29 @@ class Network:
 
         return coord_loss + object_loss + noobject_loss
     
-    def association_loss(self, tracking_tensor, label_y):
+    def association_loss(self, bbox_tensor, tracking_tensor, label_y):
 
-        track_class_predict = tf.reshape(tracking_tensor,(-1,self.cell_size,self.cell_size,self.track_num))
-        
-        labels = tf.reshape(label_y,(-1,self.cell_size,self.cell_size,5+self.track_num))
-        label_confidence = tf.expand_dims(labels[:,:,:,0], axis=3)
-        
-        track_class_label = labels[:, :, :, 5:]
-        
         with tf.name_scope('track_loss'):
-            track_loss = tf.reduce_mean(tf.reduce_sum(tf.square(label_confidence * (track_class_label - track_class_predict)),
-            reduction_indices=[1, 2, 3])) * self.track_scale
+        
+            tensors = tf.reshape(bbox_tensor,(-1,self.cell_size,self.cell_size,self.boxes_per_cell,5))
+            predict_confidence = tf.reduce_max(tensors[:,:,:,:,0], 3, keep_dims=True) 
+            track_match_predict = tf.reshape(tracking_tensor,(-1, self.cell_size, self.cell_size, self.cell_size*self.cell_size+1))
+            
+            label_tensor = tf.reshape(label_y,(-1,self.cell_size,self.cell_size,5+self.cell_size*self.cell_size+1))
+            label_confidence = tf.expand_dims(label_tensor[:,:,:,0], axis=3)
+            track_match_label = label_tensor[:, :, :, 5:]
+            
+            predict_noobject_prob = tf.ones_like(
+                    predict_confidence, dtype=tf.float32) - predict_confidence
+            predict_track_tran = tf.concat([predict_noobject_prob, track_match_predict], axis=3)
+            
+            label_noobject_prob = tf.ones_like(
+                    label_confidence, dtype=tf.float32) - label_confidence
+            label_track_tran = tf.concat([label_noobject_prob, track_match_label], axis=3)
+            
+            cross_entropy = tf.nn.softmax_cross_entropy_with_logits_v2( logits=predict_track_tran, labels=label_track_tran, name='xentropy')
+            
+            track_loss = tf.reduce_mean(tf.reduce_sum(cross_entropy, reduction_indices=[1, 2]), name='xentropy_mean')
             
             tf.summary.scalar("track_loss", track_loss)
             

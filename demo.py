@@ -18,12 +18,12 @@ import re
 
 chkpt_file = "network/logs/model.ckpt-100000"
 # chkpt_file = "network/logs/old_logs/GRU_version/model.ckpt-40000"
-tf_pattern = "train_tf/MOT16-02-*"
-img_dir = "D:/DataSet/MOT16/train/MOT16-02/img1"
+tf_pattern = "train_tf/MOT16-04-*"
+img_dir = "D:/DataSet/MOT16/train/MOT16-04/img1"
 
 data_format='NCHW'
 
-cell_size = 9
+cell_size = 7
 track_num = 30
 boxes_per_cell = 3
 
@@ -52,8 +52,8 @@ h_state_init_2 = tf.placeholder(dtype=tf.float32, shape=(1, 4096))
 _h_state_init = tuple([h_state_init_1,h_state_init_2])
 cell_state_init = tf.placeholder(dtype=tf.float32, shape=(1, 768))
 
-
-
+track_record = np.zeros((cell_size,cell_size),dtype=np.float32)
+max_track_id = 0
 
 graph = tf.Graph()
 mynet = Model(img_input2, _h_state_init, cell_state_init, is_training=False, keep_prob=1, data_format=data_format)
@@ -87,9 +87,6 @@ def coord_loss(tensor_x, label_y):
     conf_loss = np.sum(np.square(conf_delta), axis =(0, 1)) * 20
   
     return coord_loss + conf_loss
-    
-    
-
 
 
 def feature_decode(example):
@@ -112,10 +109,10 @@ def feature_decode(example):
 def process_coord_logits(tensor_x,frame_gt,img_W,img_H):
 
     tensors = np.reshape(tensor_x,(cell_size,cell_size,boxes_per_cell,5))
-    labels = np.reshape(frame_gt,(cell_size,cell_size,5+track_num))
+    labels = np.reshape(frame_gt,(cell_size,cell_size,5+cell_size*cell_size+1))
     
     confidence = tensors[...,0]
-    confidence = confidence.max(axis=2)
+    confidence = confidence.max(axis=2, keepdims=True)
     #print(confidence)
     
     #sys.exit(0)
@@ -138,33 +135,138 @@ def process_coord_logits(tensor_x,frame_gt,img_W,img_H):
     return confidence, boxes
     
     
-def process_trackid_logits(tensor_x):
+def process_trackid_logits_and_draw(img, confidence, boxes, track_tensor):
 
-    tensors = np.reshape(tensor_x,(cell_size,cell_size,track_num))
+    global track_record
+    global max_track_id
+
+    # tensors = np.reshape(tensor_x,(cell_size,cell_size,track_num))
 
     #boxes = np.transpose(boxes, [1, 2, 0])
-         
-    return tensors
+
+    track_prob = np.reshape(track_tensor,( cell_size, cell_size, cell_size*cell_size+1))
+    
+    predict_noobject_prob = np.ones_like(
+                    confidence, dtype=np.float32) - confidence
+    
+    predict_track_tran = np.concatenate((predict_noobject_prob, track_prob), axis=2)
+    
+    max_prob_track = np.argmax(predict_track_tran, 2)
+    # print(max_prob_track.dtype)
+    
+    for i in range(cell_size):
+        for j in range(cell_size):
+            if max_prob_track[i][j] == 0:
+                continue
+            elif max_prob_track[i][j] == cell_size*cell_size+1:
+                max_track_id += 1
+                track_record[i][j] = max_track_id
+                # print("max id: " + str(max_track_id))
+                img = draw_frame(img, i, j, confidence, boxes, max_track_id)
+            else:
+                match_row = int((max_prob_track[i][j]-1) / cell_size)
+                match_col = (max_prob_track[i][j]-1) % cell_size
+                
+                # print(match_row,match_col)
+                
+                track_id = track_record[match_row][match_col]
+                
+                if track_id == 0:
+                    max_track_id += 1
+                    track_id = max_track_id
+                
+                track_record[match_row][match_col] = 0
+                track_record[i][j] = track_id
+                img = draw_frame(img, i, j, confidence, boxes, track_id)
+                
+    return img
+    
+def gt_trackid_logits_and_draw(img, boxes, gt_tensor):
+
+    global track_record
+    global max_track_id
+
+    # tensors = np.reshape(tensor_x,(cell_size,cell_size,track_num))
+
+    #boxes = np.transpose(boxes, [1, 2, 0])
+    
+    gt_tensor = np.reshape(gt_tensor,(cell_size,cell_size,5+cell_size*cell_size+1))
+    
+    confidence = np.expand_dims(gt_tensor[..., 0], axis = -1)
+    
+    track_prob = np.reshape(gt_tensor[..., 5:],( cell_size, cell_size, cell_size*cell_size+1))
+    
+    predict_noobject_prob = np.ones_like(
+                    confidence, dtype=np.float32) - confidence
+    
+    predict_track_tran = np.concatenate((predict_noobject_prob, track_prob), axis=2)
+    
+    max_prob_track = np.argmax(predict_track_tran, 2)
+    # print(max_prob_track.dtype)
+    
+    for i in range(cell_size):
+        for j in range(cell_size):
+            if max_prob_track[i][j] == 0:
+                continue
+            elif max_prob_track[i][j] == cell_size*cell_size+1:
+                max_track_id += 1
+                track_record[i][j] = max_track_id
+                # print("max id: " + str(max_track_id))
+                img = draw_frame(img, i, j, confidence, boxes, max_track_id)
+            else:
+                match_row = int((max_prob_track[i][j]-1) / cell_size)
+                match_col = (max_prob_track[i][j]-1) % cell_size
+                
+                # print(match_row,match_col,max_prob_track[i][j])
+                # print(track_record)
+                
+                # os.system("pause")
+                
+                # print(match_row,match_col)
+                
+                track_id = track_record[match_row][match_col]
+                
+                # if track_id == 0:
+                    # max_track_id += 1
+                    # track_id = max_track_id
+                
+                # track_record[match_row][match_col] = 0
+                track_record[i][j] = track_id
+                img = draw_frame(img, i, j, confidence, boxes, track_id)
+                
+    return img    
+    
+
     
 def check_point_inbound(point,width,height):
-    if point[0] < 0 or point[0] > width or point[1] < 0 or point[1] > height :
-        return False
-    return True
+    if point[0] < 0:
+        point[0] = 0
+    elif point[0] > width:
+        point[0] = width
+        
+        
+    if point[1] < 0:
+        point[1] = 0
+    elif point[1] > width:
+        point[1] = width
+        
+    return point
     
     
 
-def draw_frame(img, confidence, boxes, trackid):
+def draw_frame(img, i, j, confidence, boxes, trackid):
     
-    #print(img.shape)
-    for i in range(cell_size):
-        for j in range(cell_size):
-            if confidence[i][j] > 0.1 :
-                #print(boxes[0][i][j],boxes[1][i][j],boxes[2][i][j],boxes[3][i][j])
-                left_top = (boxes[0][i][j],boxes[1][i][j])
-                right_bottom = (boxes[0][i][j]+boxes[2][i][j],boxes[1][i][j]+boxes[3][i][j])
-                if check_point_inbound(left_top,img.shape[1],img.shape[0]) and check_point_inbound(right_bottom,img.shape[1],img.shape[0]) : 
-                    cv2.rectangle(img, left_top, right_bottom, (0,255,0), 3)
-                    cv2.putText(img, "ID: " + str(np.argmax(trackid[i][j])) + ", %.2f%%" % (confidence[i][j]), (left_top[0]-5, left_top[1]-0), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2, cv2.LINE_AA)
+    trackid = int(trackid)
+    
+    #print(boxes[0][i][j],boxes[1][i][j],boxes[2][i][j],boxes[3][i][j])
+    left_top = [boxes[0][i][j],boxes[1][i][j]]
+    right_bottom = [boxes[0][i][j]+boxes[2][i][j],boxes[1][i][j]+boxes[3][i][j]]
+    
+    left_top = check_point_inbound(left_top,img.shape[1],img.shape[0])
+    right_bottom = check_point_inbound(right_bottom,img.shape[1],img.shape[0])
+    
+    cv2.rectangle(img, (left_top[0],left_top[1]) , (right_bottom[0],right_bottom[1]), ((87*trackid)%255,(293*trackid)%255,(159*trackid)%255), 3)
+    cv2.putText(img, "ID: " + str(trackid) , (left_top[0]-5, left_top[1]-0), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2, cv2.LINE_AA)
     
     
     return img
@@ -188,14 +290,18 @@ def process_image(img, concat_img, frame_gt, h_state_1, h_state_2):
     # newtrack_conf = np.zeros(8*8)
     # trackid = np.zeros(8*8).reshape(8,8)
     
-    trackid = process_trackid_logits(association_flow)
-    confidence, boxes = process_coord_logits(coord_flow,frame_gt,img.shape[1],img.shape[0])
+    confidence, boxes = process_coord_logits(coord_flow, frame_gt,img.shape[1], img.shape[0])
+    img = process_trackid_logits_and_draw(img, confidence, boxes, association_flow)
+    # img = gt_trackid_logits_and_draw(img, boxes, frame_gt)
+    
+    # draw_frame(img, confidence, boxes, trackid)
+    
     #loss = coord_loss(coord_flow,frame_gt)
     #print("loss: " + str(loss))
     
     
     
-    return confidence, boxes, trackid, h_state_1, h_state_2
+    return img, h_state_1, h_state_2
 	
 
 def tf_track():
@@ -221,6 +327,11 @@ def tf_track():
     
     tf_files.sort(key=lambda x: int(r.findall(x)[2]))
     
+    fourcc = cv2.VideoWriter_fourcc(*'XVID')
+    
+    img_zero = cv2.imread(img_files[1])
+    out = cv2.VideoWriter('output.avi', fourcc, 20.0, (img_zero.shape[1],img_zero.shape[0]))
+    
     for test_tf in tf_files:
         for string_record in tf.python_io.tf_record_iterator(path=test_tf):
             example = tf.train.Example()
@@ -231,10 +342,10 @@ def tf_track():
             
             detect_timer.tic()
             #print(h_state)
-            confidence, boxes, trackid, h_state_1, h_state_2 = process_image(img,concat_img, frame_gt, h_state_1, h_state_2)
+            result_img, h_state_1, h_state_2 = process_image(img, concat_img, frame_gt, h_state_1, h_state_2)
             # h_state_1 = np.full((1,4096), 100, dtype=np.float32)
             # h_state_2 = np.full((1,4096), 100, dtype=np.float32)
-            result_img = draw_frame(img, confidence, boxes, trackid)
+            # result_img = draw_frame(img, confidence, boxes, trackid)
             
             #det_mask = concat_img[0][...,3].copy()
         
@@ -242,6 +353,7 @@ def tf_track():
             cv2.imshow("result",result_img)
             cv2.waitKey(1)
         
+            out.write(result_img)
             
             # visualization.bboxes_draw_on_img(img, rclasses, rscores, rbboxes, visualization.colors_plasma)
             #visualization.display_video(frame, rclasses, rscores, rbboxes)
@@ -250,6 +362,10 @@ def tf_track():
             #print('detecting time: {:.3f}s'.format(detect_timer.diff))
         #os.system("pause")
     print('Average detecting time: {:.3f}s'.format(detect_timer.average_time))
+    
+    out.release()
+    cv2.destroyAllWindows()
+    
         
 	
 def main():

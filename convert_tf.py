@@ -11,8 +11,9 @@ from utils.dataset_utils import int64_feature, float_feature, bytes_feature
 
 
 MOT_DIR = "D:\DataSet\MOT16"
-cell_size = 9
-track_num = 30
+cell_size = 7
+
+track_record = np.zeros((cell_size,cell_size),dtype=np.float32)
 
 def get_frame_gt(frame_idx, gt_array, last_trackid):
 
@@ -21,7 +22,7 @@ def get_frame_gt(frame_idx, gt_array, last_trackid):
     
     rows = gt_array[mask]
 
-    gt_tensor = np.zeros((cell_size,cell_size,5+track_num),dtype=np.float32)
+    gt_tensor = np.zeros((cell_size,cell_size,5+cell_size*cell_size+1),dtype=np.float32)
 
     for i in range(rows.shape[0]):
         gt_tensor, last_trackid = encode_label(rows[i],gt_tensor, last_trackid)
@@ -111,7 +112,21 @@ def get_frame_imgmask(frame_idx, gt_array, img_files):
     
     return frame_concate_mat_shape, frame_concat_mat
 
-
+def find_prev_index_inrecord(track_id, y_ind, x_ind):
+    global track_record
+    
+    for i in range(cell_size):
+        for j in range(cell_size):
+            if track_record[i][j] == track_id :
+                track_record[i][j] = 0
+                track_record[y_ind][x_ind] = track_id
+                return True,i,j
+    
+    track_record[y_ind][x_ind] = track_id
+    return False,None,None
+    
+    
+    
 def encode_label(row,gt_tensor,last_trackid):
 
     if(row[2] < 0):
@@ -136,11 +151,18 @@ def encode_label(row,gt_tensor,last_trackid):
     gt_tensor[y_ind, x_ind, 0] = 1
     gt_tensor[y_ind, x_ind, 1:5] = boxes
     
+    match_prev_cell = gt_tensor[y_ind, x_ind, 5:5+cell_size*cell_size].reshape(cell_size,cell_size)
+    is_find,i,j = find_prev_index_inrecord(track_id, y_ind, x_ind)
+    
+    if is_find == False:
+        gt_tensor[y_ind, x_ind, 5+cell_size*cell_size] = 1
+    
+    else:
+        match_prev_cell[i][j] = 1
+    
     if(track_id > last_trackid):
         last_trackid += 1
         #print(last_trackid)
-    
-    gt_tensor[y_ind, x_ind, 5+track_id-1] = 1
 
     return gt_tensor, last_trackid
 
@@ -161,6 +183,9 @@ def run(output_dir):
 
       output_dir: Output directory.
     """
+    
+    
+    
     if not tf.gfile.Exists(output_dir):
         tf.gfile.MakeDirs(output_dir)
 
@@ -207,6 +232,9 @@ def run(output_dir):
                     max_frame_idx = frame_indices.astype(np.int).max()
                     
                     last_trackid = 0
+                    global track_record
+                    track_record = np.zeros((cell_size,cell_size),dtype=np.float32)
+                    
                     with tf.python_io.TFRecordWriter(tf_filename) as tfrecord_writer:
                         for frame_idx in range(min_frame_idx+2, max_frame_idx + 1):
 

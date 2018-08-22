@@ -90,7 +90,7 @@ class Learning:
         
         with tf.device("/gpu:0"):
             config = tf.ConfigProto()
-            config.gpu_options.per_process_gpu_memory_fraction = 0.8
+            config.gpu_options.per_process_gpu_memory_fraction = 0.7
             
             with tf.Session(graph=self.net.graph,config=config) as sess:
                 

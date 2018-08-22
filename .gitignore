@@ -2,5 +2,9 @@ train_tf
 train_tf/*
 network/logs
 network/logs/*
-__pycache__
-__pycache__/*
+network/old_logs
+network/old_logs/*
+__pycache__/
+*.py[cod]
+*.avi
+*.jpg

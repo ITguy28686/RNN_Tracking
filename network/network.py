@@ -33,15 +33,15 @@ class Network:
             self.x = tf.placeholder(dtype=tf.float32, shape=(None,300, 300, 4), name="img_inputs")
             self.x_nchw = tf.transpose(self.x, perm=[0,3,1,2])
             
-            self.h_state_init_1 = tf.placeholder(dtype=tf.float32, shape=(1, 4096), name="h_state_init1")
-            self.h_state_init_2 = tf.placeholder(dtype=tf.float32, shape=(1, 4096), name="h_state_init2")
+            self.h_state_init_1 = tf.placeholder(dtype=tf.float32, shape=(1, 2048), name="h_state_init1")
+            self.h_state_init_2 = tf.placeholder(dtype=tf.float32, shape=(1, 2048), name="h_state_init2")
             _h_state_init = tuple([self.h_state_init_1,self.h_state_init_2])
             
-            self.cell_state_init = tf.placeholder(dtype=tf.float32, shape=(1, 4096), name="cell_state_init")
+            # self.cell_state_init = tf.placeholder(dtype=tf.float32, shape=(1, 4096), name="cell_state_init")
             
             self.track_y = tf.placeholder(dtype=tf.float32, shape=(None, self.cell_size * self.cell_size * (5+self.cell_size*self.cell_size+1)), name='track_label')
             
-            mynet = Model(self.x_nchw, _h_state_init, self.cell_state_init, self.is_training, keep_prob=0.5)
+            mynet = Model(self.x_nchw, _h_state_init, is_training=True, data_format='NCHW', keep_prob=0.5)
 
             coord_flow = mynet.coord_flow
             association_flow = mynet.association_flow

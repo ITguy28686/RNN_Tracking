@@ -16,7 +16,8 @@ tf.app.flags.DEFINE_string('conv', 'standard', 'Type of CNN block')
 tf.app.flags.DEFINE_string('rnn', 'GRU', 'Type of RNN block (LSTM/GRU)')
 # tf.app.flags.DEFINE_string('chkpt_file', './network/logs/model.ckpt-11000', 'checkpoint file path')
 # tf.app.flags.DEFINE_string('chkpt_file', './network/logs/old_logs/GRU_version/model.ckpt-27000', 'checkpoint file path')
-tf.app.flags.DEFINE_string('chkpt_file', './network/old_logs/match_prev_version/model.ckpt-11000', 'checkpoint file path')
+# tf.app.flags.DEFINE_string('chkpt_file', './network/old_logs/match_prev_version/model.ckpt-11000', 'checkpoint file path')
+tf.app.flags.DEFINE_string('chkpt_file', './network/old_logs/7x7_patch/model.ckpt-100000', 'checkpoint file path')
 tf.app.flags.DEFINE_boolean('update', False, 'Generate TFRecords')
 tf.app.flags.DEFINE_boolean('download', False, 'Download dataset')
 tf.app.flags.DEFINE_boolean('restore', True, 'Restore from previous checkpoint')
@@ -27,4 +28,4 @@ data_dir = os.path.join('train_tf/')
 # exclusion_vars = ["coord2_fc1","coord2_fc2","coord2_final","coord_conv1"]
 # exclusion_vars = ["coord_final","fc_12_coord","fc_12_association"]
 # exclusion_vars = ["coord_final","association_final"]
-exclusion_vars = []
+exclusion_vars = ["fc_11-2_coord","fc_12_coord","fc_11-2_association","fc_12_association","fc_11","GRU"]

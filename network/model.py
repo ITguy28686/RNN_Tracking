@@ -9,7 +9,7 @@ FLAGS = tf.app.flags.FLAGS
 
 
 class Model:
-    def __init__(self, mat_x, h_state_init, cell_state_init, is_training, keep_prob, data_format='NCHW'):
+    def __init__(self, mat_x, h_state_init, is_training, keep_prob, data_format='NCHW'):
     
         self.cell_size = 7
         self.boxes_per_cell = 3
@@ -18,11 +18,11 @@ class Model:
         self.mat_x = mat_x
         self.is_training = is_training
         self.h_state_init = h_state_init
-        self.cell_state_init = cell_state_init
+        # self.cell_state_init = cell_state_init
         
-        self.coord_flow, self.association_flow, self.rnn_state = self.mynet(self.mat_x, self.h_state_init, self.cell_state_init, data_format, keep_prob)
+        self.coord_flow, self.association_flow, self.rnn_state = self.mynet(self.mat_x, self.h_state_init, data_format, keep_prob)
     
-    def mynet(self, mat_x, h_state_init, cell_state_init, data_format='NCHW', keep_prob=0.5) :
+    def mynet(self, mat_x, h_state_init, data_format='NCHW', keep_prob=0.5) :
         with slim.arg_scope([slim.conv2d, slim.fully_connected],
                             activation_fn=tf.nn.leaky_relu,
                             trainable=self.is_training,
@@ -44,24 +44,24 @@ class Model:
                 img_flow = tf.transpose(img_flow, perm=[0,3,1,2])
                 
             tensor_flow = slim.flatten(img_flow, scope='flat_10')
-            tensor_flow = slim.fully_connected(tensor_flow, 4096, scope='fc_11' )
+            tensor_flow = slim.fully_connected(tensor_flow, 2048, scope='fc_11' )
             
             # LSTM_layer
             # tensro_size (w*h*channel)
             # (batch_size, tensor_size) -> (1, batch_size, tensor_size) 
             tensor_flow = tf.reshape(tensor_flow, ( 1, -1, tensor_flow.get_shape()[1]))
             # tensor_flow, rnn_state = self._lstm_layer(input = tensor_flow, num_units = 2048, h_state_init = h_state_init, cell_state_init = cell_state_init, scope='LSTM_1')
-            tensor_flow, rnn_state = self._gru_layer(input = tensor_flow, num_units = 4096, h_state_init = h_state_init, scope='GRU')
+            tensor_flow, rnn_state = self._gru_layer(input = tensor_flow, num_units = 2048, h_state_init = h_state_init, scope='GRU')
             
-            coord_flow = slim.fully_connected(tensor_flow, 512, scope='fc_11-2_coord')
-            coord_flow = slim.fully_connected(coord_flow, 4096, scope='fc_12_coord')
+            # coord_flow = slim.fully_connected(tensor_flow, 512, scope='fc_11-2_coord')
+            coord_flow = slim.fully_connected(tensor_flow, 4096, scope='fc_12_coord')
             coord_flow = slim.dropout(
                     coord_flow, keep_prob=keep_prob, is_training=self.is_training,
                     scope='dropout_coord')
             coord_flow = slim.fully_connected(coord_flow, self.cell_size*self.cell_size*self.boxes_per_cell*5, scope='coord_final', activation_fn=None)
             
-            association_flow = slim.fully_connected(tensor_flow, 512, scope='fc_11-2_association')
-            association_flow = slim.fully_connected(association_flow, 4096, scope='fc_12_association')
+            # association_flow = slim.fully_connected(tensor_flow, 512, scope='fc_11-2_association')
+            association_flow = slim.fully_connected(tensor_flow, 4096, scope='fc_12_association')
             association_flow = slim.dropout(
                     association_flow, keep_prob=keep_prob, is_training=self.is_training,
                     scope='dropout_association')

@@ -17,8 +17,8 @@ class Learning:
         self.train_logs_path = self.logs_dir + '/train_logs'
         
         #self.chkpt_file = self.logs_dir + "/model.ckpt-54000"
-        self.h_state_init_1 = np.zeros(4096).reshape(1,4096).astype(np.float32)
-        self.h_state_init_2 = np.zeros(4096).reshape(1,4096).astype(np.float32)
+        self.h_state_init_1 = np.zeros(2048).reshape(1,2048).astype(np.float32)
+        self.h_state_init_2 = np.zeros(2048).reshape(1,2048).astype(np.float32)
         #self.cell_state_init = np.zeros(4096).reshape(1,4096).astype(np.float32)
 
         self.is_training = True
@@ -90,7 +90,8 @@ class Learning:
         
         with tf.device("/gpu:0"):
             config = tf.ConfigProto()
-            config.gpu_options.per_process_gpu_memory_fraction = 0.7
+            config.gpu_options.per_process_gpu_memory_fraction = 0.8
+            # config.gpu_options.allow_growth = True
             
             with tf.Session(graph=self.net.graph,config=config) as sess:
                 

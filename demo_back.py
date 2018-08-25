@@ -19,8 +19,7 @@ import re
 chkpt_file = "network/logs/model.ckpt-100000"
 # chkpt_file = "network/logs/old_logs/GRU_version/model.ckpt-40000"
 tf_pattern = "train_tf/MOT16-04-*"
-set_dir = "D:/DataSet/MOT16/test/MOT16-01"
-Set_name = "MOT16-01"
+img_dir = "D:/DataSet/MOT16/train/MOT16-04/img1"
 
 data_format='NCHW'
 
@@ -48,15 +47,16 @@ if data_format == 'NCHW' :
 else :
     img_input2 = img_input
     
-h_state_init_1 = tf.placeholder(dtype=tf.float32, shape=(1, 2048))
-h_state_init_2 = tf.placeholder(dtype=tf.float32, shape=(1, 2048))
+h_state_init_1 = tf.placeholder(dtype=tf.float32, shape=(1, 4096))
+h_state_init_2 = tf.placeholder(dtype=tf.float32, shape=(1, 4096))
 _h_state_init = tuple([h_state_init_1,h_state_init_2])
+cell_state_init = tf.placeholder(dtype=tf.float32, shape=(1, 768))
 
 track_record = np.zeros((cell_size,cell_size),dtype=np.float32)
 max_track_id = 0
 
 graph = tf.Graph()
-mynet = Model(img_input2, _h_state_init, is_training=False, keep_prob=1, data_format=data_format)
+mynet = Model(img_input2, _h_state_init, cell_state_init, is_training=False, keep_prob=1, data_format=data_format)
 
 isess.run(tf.global_variables_initializer())
 
@@ -313,8 +313,8 @@ def tf_track():
     # ret, _ = cap.read()
 
     #cell_state = np.zeros(4096).reshape(1,4096).astype(np.float32)
-    h_state_1 = np.zeros(2048).reshape(1,2048).astype(np.float32)
-    h_state_2 = np.zeros(2048).reshape(1,2048).astype(np.float32)
+    h_state_1 = np.zeros(4096).reshape(1,4096).astype(np.float32)
+    h_state_2 = np.zeros(4096).reshape(1,4096).astype(np.float32)
     
     img_files = {
             int(os.path.splitext(f)[0]): os.path.join(img_dir, f)
@@ -337,13 +337,12 @@ def tf_track():
             example = tf.train.Example()
             example.ParseFromString(string_record)
             
-            frame_id, concat_img, frame_det = feature_decode(example)
-            
+            frame_id, concat_img, frame_gt = feature_decode(example)
             img = cv2.imread(img_files[frame_id])
             
             detect_timer.tic()
             #print(h_state)
-            result_img, h_state_1, h_state_2 = process_image(img, concat_img, frame_det, h_state_1, h_state_2)
+            result_img, h_state_1, h_state_2 = process_image(img, concat_img, frame_gt, h_state_1, h_state_2)
             # h_state_1 = np.full((1,4096), 100, dtype=np.float32)
             # h_state_2 = np.full((1,4096), 100, dtype=np.float32)
             # result_img = draw_frame(img, confidence, boxes, trackid)
@@ -367,78 +366,7 @@ def tf_track():
     out.release()
     cv2.destroyAllWindows()
     
-def det_track():
-    
-    cv2.namedWindow("result", cv2.WINDOW_NORMAL)
-    cv2.resizeWindow('result', 1280,768)
-    detect_timer = Timer()
-    # cap = cv2.VideoCapture(video)
-    # ret, _ = cap.read()
-
-    #cell_state = np.zeros(4096).reshape(1,4096).astype(np.float32)
-    h_state_1 = np.zeros(2048).reshape(1,2048).astype(np.float32)
-    h_state_2 = np.zeros(2048).reshape(1,2048).astype(np.float32)
-    
-    img_files = {
-            int(os.path.splitext(f)[0]): os.path.join(img_dir, f)
-            for f in os.listdir(img_dir)}
-    
-    img_dir = os.path.join(set_dir, "img")
-    detfile = os.path.join(set_dir, "det/det.txt")
-    
-    det_array = np.load(detfile)
-    
-    frame_indices = 
-    
-    min_frame_idx = frame_indices.astype(np.int).min()
-    max_frame_idx = frame_indices.astype(np.int).max()
-    
-    r = re.compile("\d+")
-    #print(r.findall(tf_files[1]))
-    
-    tf_files.sort(key=lambda x: int(r.findall(x)[2]))
-    
-    fourcc = cv2.VideoWriter_fourcc(*'XVID')
-    
-    img_zero = cv2.imread(img_files[1])
-    out = cv2.VideoWriter('output.avi', fourcc, 20.0, (img_zero.shape[1],img_zero.shape[0]))
-    
-    for test_tf in tf_files:
-        for string_record in tf.python_io.tf_record_iterator(path=test_tf):
-            example = tf.train.Example()
-            example.ParseFromString(string_record)
-            
-            frame_id, concat_img, frame_det = feature_decode(example)
-            
-            img = cv2.imread(img_files[frame_id])
-            
-            detect_timer.tic()
-            #print(h_state)
-            result_img, h_state_1, h_state_2 = process_image(img, concat_img, frame_det, h_state_1, h_state_2)
-            # h_state_1 = np.full((1,4096), 100, dtype=np.float32)
-            # h_state_2 = np.full((1,4096), 100, dtype=np.float32)
-            # result_img = draw_frame(img, confidence, boxes, trackid)
-            
-            #det_mask = concat_img[0][...,3].copy()
         
-            #cv2.imshow("det_mask",det_mask)
-            cv2.imshow("result",result_img)
-            cv2.waitKey(1)
-        
-            out.write(result_img)
-            
-            # visualization.bboxes_draw_on_img(img, rclasses, rscores, rbboxes, visualization.colors_plasma)
-            #visualization.display_video(frame, rclasses, rscores, rbboxes)
-            
-            detect_timer.toc()
-            #print('detecting time: {:.3f}s'.format(detect_timer.diff))
-        #os.system("pause")
-    print('Average detecting time: {:.3f}s'.format(detect_timer.average_time))
-    
-    out.release()
-    cv2.destroyAllWindows()
-    
-    
 	
 def main():
     parser = argparse.ArgumentParser()
@@ -452,8 +380,6 @@ def main():
 
     # detect from video file
     tf_track()
-    
-    det_track()
 
 
 if __name__ == '__main__':

@@ -1,2 +1,2 @@
-python deep_sort_app.py      --sequence_dir=D:/DataSet/MOT16/train/MOT16-04     --detection_file=./resources/mydetections/MOT16_train/MOT16-04.npy      --min_confidence=0.3      --nn_budget=100      --display=True
+python deep_sort_app.py      --sequence_dir=D:/DataSet/2DMOT2015/train/Venice-2     --detection_file=./resources/mydetections/MOT15_train/Venice-2.npy      --min_confidence=0.3      --nn_budget=100      --display=True
 pause

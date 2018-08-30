@@ -19,8 +19,13 @@ import re
 chkpt_file = "network/logs/model.ckpt-100000"
 # chkpt_file = "network/logs/old_logs/GRU_version/model.ckpt-40000"
 tf_pattern = "train_tf/MOT16-04-*"
-set_dir = "D:/DataSet/MOT16/test/MOT16-01"
-Set_name = "MOT16-01"
+
+train_set = ["MOT16-02","MOT16-04","MOT16-05","MOT16-09","MOT16-10","MOT16-11","MOT16-13"]
+
+
+train_dir = "D:/DataSet/MOT16/train/"
+val_dir = "D:/DataSet/MOT16/test/"
+#Video_name = "MOT16-14"
 
 data_format='NCHW'
 
@@ -106,10 +111,10 @@ def feature_decode(example):
         
         return frame_id, frame_mat, frame_gt
 
-def process_coord_logits(tensor_x,frame_gt,img_W,img_H):
+def process_coord_logits(tensor_x,frame_det,img_W,img_H):
 
     tensors = np.reshape(tensor_x,(cell_size,cell_size,boxes_per_cell,5))
-    labels = np.reshape(frame_gt,(cell_size,cell_size,5+cell_size*cell_size+1))
+    # labels = np.reshape(frame_det,(cell_size,cell_size,5))
     
     confidence = tensors[...,0]
     confidence = confidence.max(axis=2, keepdims=True)
@@ -117,12 +122,7 @@ def process_coord_logits(tensor_x,frame_gt,img_W,img_H):
     
     #sys.exit(0)
     # predict_boxes = tensors[:,:,1:5]
-    det_boxes = labels[:,:,1:5]
-
-    # boxes = np.stack([(predict_boxes[..., 0] + offset) / cell_size * img_W,
-                 # (predict_boxes[..., 1] + offset_tran) / cell_size * img_H,
-                 # np.square(predict_boxes[..., 2]) * img_W,
-                 # np.square(predict_boxes[..., 3]) * img_H])
+    det_boxes = frame_det[:,:,1:5]
                  
     boxes = np.stack([det_boxes[..., 0] * img_W,
                  det_boxes[..., 1] * img_H,
@@ -135,7 +135,7 @@ def process_coord_logits(tensor_x,frame_gt,img_W,img_H):
     return confidence, boxes
     
     
-def process_trackid_logits_and_draw(img, confidence, boxes, track_tensor):
+def process_trackid_logits_and_draw(frame_idx, img, confidence, boxes, track_tensor):
 
     global track_record
     global max_track_id
@@ -153,6 +153,8 @@ def process_trackid_logits_and_draw(img, confidence, boxes, track_tensor):
     
     max_prob_track = np.argmax(predict_track_tran, 2)
     # print(max_prob_track.dtype)
+    
+    record = []
     
     for i in range(cell_size):
         for j in range(cell_size):
@@ -178,8 +180,9 @@ def process_trackid_logits_and_draw(img, confidence, boxes, track_tensor):
                 track_record[match_row][match_col] = 0
                 track_record[i][j] = track_id
                 img = draw_frame(img, i, j, confidence, boxes, track_id)
+                record += [[frame_idx, track_id, boxes[0][i][j], boxes[1][i][j], boxes[2][i][j], boxes[3][i][j]]]
                 
-    return img
+    return img, record
     
 def gt_trackid_logits_and_draw(img, boxes, gt_tensor):
 
@@ -273,7 +276,7 @@ def draw_frame(img, i, j, confidence, boxes, trackid):
 
 
 # Main image processing routine.
-def process_image(img, concat_img, frame_gt, h_state_1, h_state_2):
+def process_image(frame_idx, img, concat_img, frame_det, h_state_1, h_state_2):
     # Run SSD network.
     # coord_flow, association_flow, coord_flow2, lstm_state = isess.run([mynet.coord_flow, mynet.association_flow, mynet.coord_flow2, mynet.lstm_state],
                                                               # feed_dict={img_input: concat_img, h_state_init: h_state, cell_state_init: cell_state})
@@ -290,8 +293,8 @@ def process_image(img, concat_img, frame_gt, h_state_1, h_state_2):
     # newtrack_conf = np.zeros(8*8)
     # trackid = np.zeros(8*8).reshape(8,8)
     
-    confidence, boxes = process_coord_logits(coord_flow, frame_gt,img.shape[1], img.shape[0])
-    img = process_trackid_logits_and_draw(img, confidence, boxes, association_flow)
+    confidence, boxes = process_coord_logits(coord_flow, frame_det, img.shape[1], img.shape[0])
+    img, record = process_trackid_logits_and_draw(frame_idx, img, confidence, boxes, association_flow)
     # img = gt_trackid_logits_and_draw(img, boxes, frame_gt)
     
     # draw_frame(img, confidence, boxes, trackid)
@@ -300,8 +303,7 @@ def process_image(img, concat_img, frame_gt, h_state_1, h_state_2):
     #print("loss: " + str(loss))
     
     
-    
-    return img, h_state_1, h_state_2
+    return img, h_state_1, h_state_2, record
 	
 
 def tf_track():
@@ -343,7 +345,11 @@ def tf_track():
             
             detect_timer.tic()
             #print(h_state)
-            result_img, h_state_1, h_state_2 = process_image(img, concat_img, frame_det, h_state_1, h_state_2)
+            
+            
+            frame_det = np.reshape(frame_det,(cell_size,cell_size,5+cell_size*cell_size+1))
+            
+            result_img, h_state_1, h_state_2 = process_image(frame_idx, img, concat_img, frame_det[..., 0:5], h_state_1, h_state_2)
             # h_state_1 = np.full((1,4096), 100, dtype=np.float32)
             # h_state_2 = np.full((1,4096), 100, dtype=np.float32)
             # result_img = draw_frame(img, confidence, boxes, trackid)
@@ -366,78 +372,159 @@ def tf_track():
     
     out.release()
     cv2.destroyAllWindows()
+
+
+def encode_det(frame_idx, det_array, img):
+
+    frame_indices = det_array[:, 0].astype(np.int)
+
+    mask = (frame_indices == frame_idx) & ( det_array[:, 6] > 0.3)
     
-def det_track():
+    rows = det_array[mask]
     
-    cv2.namedWindow("result", cv2.WINDOW_NORMAL)
-    cv2.resizeWindow('result', 1280,768)
+    mask_img = np.zeros((300,300,1), np.float32)
+    
+    det_tensor = np.zeros((cell_size,cell_size, 5), dtype=np.float32)
+    
+    for i in range(rows.shape[0]):
+        mask_x = int(rows[i][2]*300)
+        mask_y = int(rows[i][3]*300)
+        mask_w = int(rows[i][4]*300)
+        mask_h = int(rows[i][5]*300)
+        
+        # if(mask_x >= 300 or mask_y>= 300):
+            # print('%f,%f  %f,%f' % (rows[i][1],rows[i][2],mask_x,mask_y))
+        
+        if(mask_x < 0):
+            mask_w += mask_x
+            mask_x = 0
+                  
+        if(mask_y < 0):
+            mask_h += mask_y
+            mask_y = 0
+        
+        if(mask_x+mask_w >= 300):
+            mask_w = 300 - mask_x - 1
+        
+        if(mask_y+mask_h >= 300):
+            mask_h = 300 - mask_y - 1
+        
+        for y in range(mask_y,mask_y+mask_h):
+            mask_img[y][mask_x] = 1
+            mask_img[y][mask_x+mask_w] = 1
+            
+        for x in range(mask_x,mask_x+mask_w):
+            mask_img[mask_y][x] = 1
+            mask_img[mask_y+mask_h][x] = 1
+        
+        x_ind = int(rows[i][2] * cell_size)
+        y_ind = int(rows[i][3] * cell_size)
+        
+        if det_tensor[y_ind, x_ind, 0] == 1:
+            continue
+        
+        det_tensor[y_ind, x_ind, 0] = 1
+        det_tensor[y_ind, x_ind, 1:5] = rows[i][2:6]    
+            
+    mask_img = mask_img.astype(np.float32)
+        
+    img_f = np.float32(img)
+    img_f /= 255
+    img_f = img_f.clip(0,1.)
+    
+    concat_img = np.concatenate((img_f, mask_img),axis = 2)
+    concat_img = np.expand_dims(concat_img, axis = 0)
+
+    return concat_img, det_tensor
+
+
+    
+def det_track(set_dir, set_name):
+    
+    global track_record
+    track_record = np.zeros((cell_size,cell_size),dtype=np.float32)
+    
+    global max_track_id
+    max_track_id = 0
+
+    #cv2.namedWindow("result", cv2.WINDOW_NORMAL)
+    #cv2.resizeWindow('result', 1280,768)
     detect_timer = Timer()
     # cap = cv2.VideoCapture(video)
     # ret, _ = cap.read()
 
     #cell_state = np.zeros(4096).reshape(1,4096).astype(np.float32)
-    h_state_1 = np.zeros(2048).reshape(1,2048).astype(np.float32)
-    h_state_2 = np.zeros(2048).reshape(1,2048).astype(np.float32)
+    h_state_1 = np.zeros((1,2048), dtype=np.float32)
+    h_state_2 = np.zeros((1,2048), dtype=np.float32)
+    
+    img_dir = os.path.join(set_dir, "img1")
+    detfile = os.path.join(set_dir, "det/det.txt")
     
     img_files = {
             int(os.path.splitext(f)[0]): os.path.join(img_dir, f)
             for f in os.listdir(img_dir)}
     
-    img_dir = os.path.join(set_dir, "img")
-    detfile = os.path.join(set_dir, "det/det.txt")
+    det_array = np.loadtxt(detfile, delimiter=',')
     
-    det_array = np.load(detfile)
-    
-    frame_indices = 
+    frame_indices = det_array[:, 0].astype(np.int)
     
     min_frame_idx = frame_indices.astype(np.int).min()
     max_frame_idx = frame_indices.astype(np.int).max()
     
-    r = re.compile("\d+")
-    #print(r.findall(tf_files[1]))
-    
-    tf_files.sort(key=lambda x: int(r.findall(x)[2]))
+    temp_img = cv2.imread(img_files[min_frame_idx])
+    det_array[:, 2] /= temp_img.shape[1]
+    det_array[:, 3] /= temp_img.shape[0]
+    det_array[:, 4] /= temp_img.shape[1]
+    det_array[:, 5] /= temp_img.shape[0]
     
     fourcc = cv2.VideoWriter_fourcc(*'XVID')
     
     img_zero = cv2.imread(img_files[1])
     out = cv2.VideoWriter('output.avi', fourcc, 20.0, (img_zero.shape[1],img_zero.shape[0]))
     
-    for test_tf in tf_files:
-        for string_record in tf.python_io.tf_record_iterator(path=test_tf):
-            example = tf.train.Example()
-            example.ParseFromString(string_record)
-            
-            frame_id, concat_img, frame_det = feature_decode(example)
-            
-            img = cv2.imread(img_files[frame_id])
-            
-            detect_timer.tic()
-            #print(h_state)
-            result_img, h_state_1, h_state_2 = process_image(img, concat_img, frame_det, h_state_1, h_state_2)
-            # h_state_1 = np.full((1,4096), 100, dtype=np.float32)
-            # h_state_2 = np.full((1,4096), 100, dtype=np.float32)
-            # result_img = draw_frame(img, confidence, boxes, trackid)
-            
-            #det_mask = concat_img[0][...,3].copy()
+    video_record = []
+    
+    for frame_idx in range(min_frame_idx, max_frame_idx + 1):
         
-            #cv2.imshow("det_mask",det_mask)
-            cv2.imshow("result",result_img)
-            cv2.waitKey(1)
+        img = cv2.imread(img_files[frame_idx])
+        resized_img = cv2.resize(img, (300, 300))
         
-            out.write(result_img)
-            
-            # visualization.bboxes_draw_on_img(img, rclasses, rscores, rbboxes, visualization.colors_plasma)
-            #visualization.display_video(frame, rclasses, rscores, rbboxes)
-            
-            detect_timer.toc()
-            #print('detecting time: {:.3f}s'.format(detect_timer.diff))
-        #os.system("pause")
+        concat_img, frame_det = encode_det(frame_idx, det_array, resized_img)
+        
+        detect_timer.tic()
+        #print(h_state)
+        result_img, h_state_1, h_state_2, record = process_image(frame_idx, img, concat_img, frame_det, h_state_1, h_state_2)
+        video_record += record
+        # h_state_1 = np.full((1,4096), 100, dtype=np.float32)
+        # h_state_2 = np.full((1,4096), 100, dtype=np.float32)
+        # result_img = draw_frame(img, confidence, boxes, trackid)
+        
+        #det_mask = concat_img[0][...,3].copy()
+    
+        #cv2.imshow("det_mask",det_mask)
+        cv2.imshow("result",result_img)
+        cv2.waitKey(0)
+    
+        out.write(result_img)
+        
+        # visualization.bboxes_draw_on_img(img, rclasses, rscores, rbboxes, visualization.colors_plasma)
+        #visualization.display_video(frame, rclasses, rscores, rbboxes)
+        
+        detect_timer.toc()
+        #print('detecting time: {:.3f}s'.format(detect_timer.diff))
+    #os.system("pause")
     print('Average detecting time: {:.3f}s'.format(detect_timer.average_time))
+    print('Total time: {:.3f}s'.format(detect_timer.total_time))
     
     out.release()
     cv2.destroyAllWindows()
     
+    f = open( set_name+".txt" , 'w')
+    
+    for row in video_record:
+            print('%d,%d,%.4f,%.4f,%.4f,%.4f,1,-1,-1,-1' % (
+                row[0], row[1], row[2], row[3], row[4], row[5]),file=f)
+    f.close()
     
 	
 def main():
@@ -451,9 +538,11 @@ def main():
     # detector.camera_detector(cap)
 
     # detect from video file
-    tf_track()
+    # tf_track()
     
-    det_track()
+    for set in train_set:
+        track_record = np.zeros((cell_size,cell_size),dtype=np.float32)
+        det_track(os.path.join(train_dir, set), set)
 
 
 if __name__ == '__main__':

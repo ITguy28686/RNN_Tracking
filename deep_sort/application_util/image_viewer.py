@@ -308,8 +308,8 @@ class ImageViewer(object):
                         cv2.resize(self.image, self._window_shape))
             t1 = time.time()
             remaining_time = max(1, int(self._update_ms - 1e3*(t1-t0)))
-            cv2.imshow(
-                self._caption, cv2.resize(self.image, self._window_shape[:2]))
+            # cv2.imshow(
+                # self._caption, cv2.resize(self.image, self._window_shape[:2]))
             key = cv2.waitKey(remaining_time)
             if key & 255 == 27:  # ESC
                 print("terminating")
@@ -328,9 +328,9 @@ class ImageViewer(object):
         #
         # see https://github.com/Itseez/opencv/issues/4535
         self.image[:] = 0
-        cv2.destroyWindow(self._caption)
-        cv2.waitKey(1)
-        cv2.imshow(self._caption, self.image)
+        # cv2.destroyWindow(self._caption)
+        # cv2.waitKey(1)
+        # cv2.imshow(self._caption, self.image)
 
     def stop(self):
         """Stop the control loop.

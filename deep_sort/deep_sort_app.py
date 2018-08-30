@@ -7,6 +7,8 @@ import os
 import cv2
 import numpy as np
 import time
+import random
+import sys
 
 from application_util import preprocessing
 from application_util import visualization
@@ -82,21 +84,32 @@ def gather_sequence_info(sequence_dir, detection_file):
 
     feature_dim = detections.shape[1] - 10 if detections is not None else 0
     
+    times = len(image_filenames)/batch_size
+    if len(image_filenames)%batch_size > 0:
+        times += 1
+    times *= 5
+    
     i = 0
     seq_info = []
-    while batch_size*i < len(image_filenames) :
-    
-        batch_max_frame_idx = min_frame_idx + (i+1)*batch_size - 1;
-        if batch_max_frame_idx > max_frame_idx:
-            batch_max_frame_idx = max_frame_idx
+    while i < times :
+        
+        start_num = random.randint(0,sys.maxsize) % (max_frame_idx - min_frame_idx + 1) + min_frame_idx
+        end_num = start_num + batch_size
+        
+        if end_num > max_frame_idx:
+            end_num = max_frame_idx
+        
+        # batch_max_frame_idx = min_frame_idx + (i+1)*batch_size - 1;
+        # if batch_max_frame_idx > max_frame_idx:
+            # batch_max_frame_idx = max_frame_idx
             
         frame_indices = detections[:, 0].astype(np.int)
-        mask = (frame_indices >= min_frame_idx) & (frame_indices <= batch_max_frame_idx)
+        mask = (frame_indices >= start_num) & (frame_indices <= end_num)
     
         rows = detections[mask]   
 
 
-        batch_image_filenames = dict((k, v) for k, v in image_filenames.items() if (k >= min_frame_idx) & (k <= batch_max_frame_idx))
+        batch_image_filenames = dict((k, v) for k, v in image_filenames.items() if (k >= start_num) & (k <= end_num))
         
         
         #print(image_filenames[batch_size*i:batch_size*(i+1)])
@@ -107,8 +120,8 @@ def gather_sequence_info(sequence_dir, detection_file):
             "detections": rows,
             "groundtruth": groundtruth,
             "image_size": image_size,
-            "min_frame_idx": min_frame_idx + i*batch_size,
-            "max_frame_idx": batch_max_frame_idx,
+            "min_frame_idx": start_num,
+            "max_frame_idx": end_num,
             "feature_dim": feature_dim,
             "update_ms": update_ms
         }

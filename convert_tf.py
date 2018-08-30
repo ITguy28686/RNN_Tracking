@@ -10,8 +10,8 @@ import numpy as np
 from utils.dataset_utils import int64_feature, float_feature, bytes_feature
 
 
-MOT_DIR = "D:\DataSet\MOT16"
-cell_size = 7
+MOT_DIR = "D:/DataSet/2DMOT2015"
+cell_size = 9
 
 track_record = np.zeros((cell_size,cell_size),dtype=np.float32)
 

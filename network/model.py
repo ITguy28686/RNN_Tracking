@@ -11,7 +11,7 @@ FLAGS = tf.app.flags.FLAGS
 class Model:
     def __init__(self, mat_x, h_state_init, is_training, keep_prob, data_format='NCHW'):
     
-        self.cell_size = 7
+        self.cell_size = 9
         self.boxes_per_cell = 3
         self.track_num = 30
     

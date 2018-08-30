@@ -4,7 +4,14 @@ network/logs
 network/logs/*
 network/old_logs
 network/old_logs/*
+deep_sort/resources
+deep_sort/resources/*
+
+
 __pycache__/
 *.py[cod]
 *.avi
 *.jpg
+*.txt
+*.zip
+

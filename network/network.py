@@ -10,7 +10,7 @@ FLAGS = tf.app.flags.FLAGS
 class Network:
     def __init__(self, is_training):
         
-        self.cell_size = 7
+        self.cell_size = 9
         self.boxes_per_cell = 3
         self.track_num = 30
         

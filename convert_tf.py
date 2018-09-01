@@ -10,10 +10,12 @@ import numpy as np
 from utils.dataset_utils import int64_feature, float_feature, bytes_feature
 
 
-MOT_DIR = "D:/DataSet/2DMOT2015"
+# MOT_DIR = "D:/DataSet/2DMOT2015"
+MOT_DIR = "D:/DataSet/MOT16"
+img_size = 576
 cell_size = 9
 
-track_record = np.zeros((cell_size,cell_size),dtype=np.float32)
+track_record = np.zeros((cell_size,cell_size,5),dtype=np.float32) #(top_left_x, top_left_y, _w, _h, track_id)
 
 def get_frame_gt(frame_idx, gt_array, last_trackid):
 
@@ -25,7 +27,7 @@ def get_frame_gt(frame_idx, gt_array, last_trackid):
     gt_tensor = np.zeros((cell_size,cell_size,5+cell_size*cell_size+1),dtype=np.float32)
 
     for i in range(rows.shape[0]):
-        gt_tensor, last_trackid = encode_label(rows[i],gt_tensor, last_trackid)
+        gt_tensor, last_trackid = encode_label(rows[i], gt_tensor, last_trackid)
         # gt_tensor[i] = rows[i][1]       #track_id
         # gt_tensor[i+64] = 1             #conf
         # gt_tensor[i+64*2] = rows[i][2]  #x
@@ -36,47 +38,48 @@ def get_frame_gt(frame_idx, gt_array, last_trackid):
     frame_gt = float_feature(gt_tensor.flatten().tolist())
     frame_id = int64_feature(frame_idx)
     
-    return frame_gt, frame_id, last_trackid
+    return frame_gt, frame_id, last_trackid, gt_tensor
     
-def get_frame_imgmask(frame_idx, gt_array, img_files):
+def get_frame_imgmask(frame_idx, gt_array, img_files, gt_tensor):
 
     #get mask
-    frame_indices = gt_array[:, 0].astype(np.int)
-    mask = frame_indices == frame_idx
-    rows = gt_array[mask]
+    # frame_indices = gt_array[:, 0].astype(np.int)
+    # mask = frame_indices == frame_idx
+    # rows = gt_array[mask]
     
-    mask_img = np.zeros((300,300,1), np.float32)
+    mask_img = np.zeros((img_size,img_size,1), np.float32)
 
-    for i in range(rows.shape[0]):
-        mask_x = int(300 * rows[i][2])
-        mask_y = int(300 * rows[i][3])
-        mask_w = int(300 * rows[i][4])
-        mask_h = int(300 * rows[i][5])
-        
-        # if(mask_x >= 300 or mask_y>= 300):
-            # print('%f,%f  %f,%f' % (rows[i][1],rows[i][2],mask_x,mask_y))
-        
-        if(mask_x < 0):
-            mask_w += mask_x
-            mask_x = 0
-                  
-        if(mask_y < 0):
-            mask_h += mask_y
-            mask_y = 0
-        
-        if(mask_x+mask_w >= 300):
-            mask_w = 300 - mask_x - 1
-        
-        if(mask_y+mask_h >= 300):
-            mask_h = 300 - mask_y - 1
-        
-        for y in range(mask_y,mask_y+mask_h):
-            mask_img[y][mask_x] = 1
-            mask_img[y][mask_x+mask_w] = 1
+    for i in range(cell_size):
+        for j in range(cell_size):
+            mask_x = int(img_size * gt_tensor[i][j][1])
+            mask_y = int(img_size * gt_tensor[i][j][2])
+            mask_w = int(img_size * gt_tensor[i][j][3])
+            mask_h = int(img_size * gt_tensor[i][j][4])
             
-        for x in range(mask_x,mask_x+mask_w):
-            mask_img[mask_y][x] = 1
-            mask_img[mask_y+mask_h][x] = 1  
+            # if(mask_x >= 300 or mask_y>= 300):
+                # print('%f,%f  %f,%f' % (rows[i][1],rows[i][2],mask_x,mask_y))
+            
+            if(mask_x < 0):
+                mask_w += mask_x
+                mask_x = 0
+                      
+            if(mask_y < 0):
+                mask_h += mask_y
+                mask_y = 0
+            
+            if(mask_x+mask_w >= img_size):
+                mask_w = img_size - mask_x - 1
+            
+            if(mask_y+mask_h >= img_size):
+                mask_h = img_size - mask_y - 1
+            
+            for y in range(mask_y,mask_y+mask_h):
+                mask_img[y][mask_x] = 1
+                mask_img[y][mask_x+mask_w] = 1
+                
+            for x in range(mask_x,mask_x+mask_w):
+                mask_img[mask_y][x] = 1
+                mask_img[mask_y+mask_h][x] = 1  
     mask_img = mask_img.astype(np.float32)  
     
     # cv2.imshow("mask_img",mask_img)
@@ -89,7 +92,7 @@ def get_frame_imgmask(frame_idx, gt_array, img_files):
     # decode image to jpeg
     img_data = tf.image.decode_jpeg(frame_raw)
     img_data = tf.image.convert_image_dtype(img_data, dtype=tf.float32)  
-    resized_img_data = tf.image.resize_images(img_data, (300, 300), method=0)
+    resized_img_data = tf.image.resize_images(img_data, (img_size, img_size), method=0)
     #normalized_img_data = tf.image.per_image_standardization(resized_img_data)
     
     img_mat = resized_img_data.eval()
@@ -112,6 +115,9 @@ def get_frame_imgmask(frame_idx, gt_array, img_files):
     
     return frame_concate_mat_shape, frame_concat_mat
 
+def clean_id_inrecord(track_id):
+    global track_record
+    
 def find_prev_index_inrecord(track_id, y_ind, x_ind):
     global track_record
     
@@ -242,9 +248,9 @@ def run(output_dir):
                                 continue
                             
                             #frame_det = get_frame_det(frame_idx, det_array, img_files)
-                            frame_gt, frame_id, last_trackid = get_frame_gt(frame_idx, gt_array, last_trackid)
+                            frame_gt, frame_id, last_trackid, gt_tensor = get_frame_gt(frame_idx, gt_array, last_trackid)
                             
-                            frame_concate_mat_shape, frame_concat_mat = get_frame_imgmask(frame_idx, gt_array, img_files)
+                            frame_concate_mat_shape, frame_concat_mat = get_frame_imgmask(frame_idx, gt_array, img_files, gt_tensor)
                             
                             example = convert_to_example(frame_id, frame_gt, frame_concate_mat_shape, frame_concat_mat)
                             tfrecord_writer.write(example.SerializeToString())

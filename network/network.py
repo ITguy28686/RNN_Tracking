@@ -13,6 +13,7 @@ class Network:
         self.cell_size = 9
         self.boxes_per_cell = 3
         self.track_num = 30
+        self.img_size = 576
         
         self.coord_scale = 5
         self.object_scale = 20
@@ -30,11 +31,11 @@ class Network:
 
     def eval(self):
         with self.graph.as_default():
-            self.x = tf.placeholder(dtype=tf.float32, shape=(None,300, 300, 4), name="img_inputs")
+            self.x = tf.placeholder(dtype=tf.float32, shape=(None,self.img_size, self.img_size, 4), name="img_inputs")
             self.x_nchw = tf.transpose(self.x, perm=[0,3,1,2])
             
-            self.h_state_init_1 = tf.placeholder(dtype=tf.float32, shape=(1, 2048), name="h_state_init1")
-            self.h_state_init_2 = tf.placeholder(dtype=tf.float32, shape=(1, 2048), name="h_state_init2")
+            self.h_state_init_1 = tf.placeholder(dtype=tf.float32, shape=(1, 2592), name="h_state_init1")
+            self.h_state_init_2 = tf.placeholder(dtype=tf.float32, shape=(1, 2592), name="h_state_init2")
             _h_state_init = tuple([self.h_state_init_1,self.h_state_init_2])
             
             # self.cell_state_init = tf.placeholder(dtype=tf.float32, shape=(1, 4096), name="cell_state_init")
@@ -48,8 +49,8 @@ class Network:
 
             with tf.name_scope('Cost'):
                 
-                coord_loss = self.coord_loss_function(coord_flow, self.track_y, name='coord_loss')
-                ass_loss = self.association_loss(coord_flow, association_flow, self.track_y)
+                coord_loss, iou_predict_truth = self.coord_loss_function(coord_flow, self.track_y, name='coord_loss')
+                ass_loss = self.association_loss(coord_flow, iou_predict_truth, association_flow, self.track_y)
                 
                 reg_losses = tf.get_collection(tf.GraphKeys.REGULARIZATION_LOSSES)
                 
@@ -186,7 +187,7 @@ class Network:
             noobject_mask = tf.ones_like(
                 object_mask, dtype=tf.float32) - object_mask
             
-            object_loss = tf.reduce_mean(tf.reduce_sum(tf.square(object_mask * ( label_confidence - predict_confidence)),
+            object_loss = tf.reduce_mean(tf.reduce_sum(tf.square(object_mask * ( predict_confidence - iou_predict_truth)),
                                         reduction_indices=[1, 2, 3]), name='object_loss') * self.object_scale
                                         
             noobject_loss = tf.reduce_mean(tf.reduce_sum(tf.square(noobject_mask * predict_confidence),
@@ -210,9 +211,9 @@ class Network:
             
             tf.summary.scalar(name, coord_loss)
 
-        return coord_loss + object_loss + noobject_loss
+        return coord_loss + object_loss + noobject_loss, iou_predict_truth
     
-    def association_loss(self, bbox_tensor, tracking_tensor, label_y):
+    def association_loss(self, bbox_tensor, iou_predict_truth, tracking_tensor, label_y):
 
         with tf.name_scope('track_loss'):
         
@@ -223,6 +224,7 @@ class Network:
             label_tensor = tf.reshape(label_y,(-1,self.cell_size,self.cell_size,5+self.cell_size*self.cell_size+1))
             label_confidence = tf.expand_dims(label_tensor[:,:,:,0], axis=3)
             track_match_label = label_tensor[:, :, :, 5:]
+            track_match_label *= tf.expand_dims(label_tensor[:,:,:,0],3)
             
             predict_noobject_prob = tf.ones_like(
                     predict_confidence, dtype=tf.float32) - predict_confidence

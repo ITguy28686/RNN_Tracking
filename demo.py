@@ -16,11 +16,12 @@ import argparse
 import re
 
 
-chkpt_file = "network/logs/model.ckpt-100000"
+chkpt_file = "network/logs/model.ckpt-18000"
 # chkpt_file = "network/logs/old_logs/GRU_version/model.ckpt-40000"
 tf_pattern = "train_tf/MOT16-04-*"
 
 train_set = ["MOT16-02","MOT16-04","MOT16-05","MOT16-09","MOT16-10","MOT16-11","MOT16-13"]
+test_set = []
 
 
 train_dir = "D:/DataSet/MOT16/train/"
@@ -29,7 +30,7 @@ val_dir = "D:/DataSet/MOT16/test/"
 
 data_format='NCHW'
 
-cell_size = 7
+cell_size = 9
 track_num = 30
 boxes_per_cell = 3
 
@@ -116,18 +117,42 @@ def process_coord_logits(tensor_x,frame_det,img_W,img_H):
     tensors = np.reshape(tensor_x,(cell_size,cell_size,boxes_per_cell,5))
     # labels = np.reshape(frame_det,(cell_size,cell_size,5))
     
-    confidence = tensors[...,0]
-    confidence = confidence.max(axis=2, keepdims=True)
+    # print(conf_max_arg.shape)
+    # sys.exit(0)
     #print(confidence)
     
     #sys.exit(0)
-    # predict_boxes = tensors[:,:,1:5]
-    det_boxes = frame_det[:,:,1:5]
-                 
-    boxes = np.stack([det_boxes[..., 0] * img_W,
-                 det_boxes[..., 1] * img_H,
-                 det_boxes[..., 2] * img_W,
-                 det_boxes[..., 3] * img_H])
+    predict_boxes = tensors[..., 1:5]
+    
+    predict_boxes[..., 0] += offset
+    predict_boxes[..., 1] += offset_tran
+    predict_boxes[..., :2] = 1.0 * predict_boxes[..., 0:2] / cell_size
+    predict_boxes[..., 2:] = np.square(predict_boxes[..., 2:])
+    
+    predict_boxes[..., 0] *= img_W
+    predict_boxes[..., 1] *= img_H
+    predict_boxes[..., 2] *= img_W
+    predict_boxes[..., 3] *= img_H
+    
+    # det_boxes = frame_det[:,:,1:5]
+    boxes = np.zeros((cell_size,cell_size,4))
+    
+    confidence = tensors[...,0]
+    conf_max_arg = confidence.argmax(axis=2)
+    confidence = confidence.max(axis=2, keepdims = True)
+    
+    for i in range(cell_size):
+        for j in range(cell_size):
+            boxes[i][j][0] = predict_boxes[i, j, conf_max_arg[i][j], 0]
+            boxes[i][j][1] = predict_boxes[i, j, conf_max_arg[i][j], 1]
+            boxes[i][j][2] = predict_boxes[i, j, conf_max_arg[i][j], 2]
+            boxes[i][j][3] = predict_boxes[i, j, conf_max_arg[i][j], 3]
+
+
+    # boxes = np.stack([det_boxes[..., 0] * img_W,
+                 # det_boxes[..., 1] * img_H,
+                 # det_boxes[..., 2] * img_W,
+                 # det_boxes[..., 3] * img_H])
                  
     boxes = boxes.astype(np.int32)
     # boxes = np.transpose(boxes, [2, 0, 1])
@@ -180,7 +205,7 @@ def process_trackid_logits_and_draw(frame_idx, img, confidence, boxes, track_ten
                 track_record[match_row][match_col] = 0
                 track_record[i][j] = track_id
                 img = draw_frame(img, i, j, confidence, boxes, track_id)
-                record += [[frame_idx, track_id, boxes[0][i][j], boxes[1][i][j], boxes[2][i][j], boxes[3][i][j]]]
+                record += [[frame_idx, track_id, boxes[i][j][0], boxes[i][j][1], boxes[i][j][2], boxes[i][j][3]]]
                 
     return img, record
     
@@ -262,8 +287,8 @@ def draw_frame(img, i, j, confidence, boxes, trackid):
     trackid = int(trackid)
     
     #print(boxes[0][i][j],boxes[1][i][j],boxes[2][i][j],boxes[3][i][j])
-    left_top = [boxes[0][i][j],boxes[1][i][j]]
-    right_bottom = [boxes[0][i][j]+boxes[2][i][j],boxes[1][i][j]+boxes[3][i][j]]
+    left_top = [boxes[i][j][0],boxes[i][j][1]]
+    right_bottom = [boxes[i][j][0]+boxes[i][j][2],boxes[i][j][1]+boxes[i][j][3]]
     
     left_top = check_point_inbound(left_top,img.shape[1],img.shape[0])
     right_bottom = check_point_inbound(right_bottom,img.shape[1],img.shape[0])
@@ -503,7 +528,7 @@ def det_track(set_dir, set_name):
     
         #cv2.imshow("det_mask",det_mask)
         cv2.imshow("result",result_img)
-        cv2.waitKey(0)
+        cv2.waitKey(1)
     
         out.write(result_img)
         

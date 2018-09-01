@@ -39,29 +39,31 @@ class Model:
             img_flow = slim.repeat(img_flow, 1, slim.conv2d, 512, [3, 3], stride=2, data_format=data_format, padding='SAME', scope='conv7_pool')
             img_flow = slim.repeat(img_flow, 1, slim.conv2d, 256, [1, 1], data_format=data_format, scope='conv8')
             img_flow = slim.repeat(img_flow, 1, slim.conv2d, 512, [3, 3], stride=2, data_format=data_format, padding='SAME', scope='conv9_pool')
+            img_flow = slim.repeat(img_flow, 1, slim.conv2d, 256, [1, 1], data_format=data_format, scope='conv10')
+            img_flow = slim.repeat(img_flow, 1, slim.conv2d, 512, [3, 3], stride=2, data_format=data_format, padding='SAME', scope='conv11_pool')
             
             if data_format == 'NHWC' :
                 img_flow = tf.transpose(img_flow, perm=[0,3,1,2])
                 
             tensor_flow = slim.flatten(img_flow, scope='flat_10')
-            tensor_flow = slim.fully_connected(tensor_flow, 2048, scope='fc_11' )
+            tensor_flow = slim.fully_connected(tensor_flow, 2592, scope='fc_12' )
             
             # LSTM_layer
             # tensro_size (w*h*channel)
             # (batch_size, tensor_size) -> (1, batch_size, tensor_size) 
             tensor_flow = tf.reshape(tensor_flow, ( 1, -1, tensor_flow.get_shape()[1]))
             # tensor_flow, rnn_state = self._lstm_layer(input = tensor_flow, num_units = 2048, h_state_init = h_state_init, cell_state_init = cell_state_init, scope='LSTM_1')
-            tensor_flow, rnn_state = self._gru_layer(input = tensor_flow, num_units = 2048, h_state_init = h_state_init, scope='GRU')
+            tensor_flow, rnn_state = self._gru_layer(input = tensor_flow, num_units = 2592, h_state_init = h_state_init, scope='GRU')
             
             # coord_flow = slim.fully_connected(tensor_flow, 512, scope='fc_11-2_coord')
-            coord_flow = slim.fully_connected(tensor_flow, 4096, scope='fc_12_coord')
+            coord_flow = slim.fully_connected(tensor_flow, 5184, scope='fc_13_coord')
             coord_flow = slim.dropout(
                     coord_flow, keep_prob=keep_prob, is_training=self.is_training,
                     scope='dropout_coord')
             coord_flow = slim.fully_connected(coord_flow, self.cell_size*self.cell_size*self.boxes_per_cell*5, scope='coord_final', activation_fn=None)
             
             # association_flow = slim.fully_connected(tensor_flow, 512, scope='fc_11-2_association')
-            association_flow = slim.fully_connected(tensor_flow, 4096, scope='fc_12_association')
+            association_flow = slim.fully_connected(tensor_flow, 5184, scope='fc_13_association')
             association_flow = slim.dropout(
                     association_flow, keep_prob=keep_prob, is_training=self.is_training,
                     scope='dropout_association')

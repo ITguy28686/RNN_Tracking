@@ -13,7 +13,8 @@ class Network:
         self.cell_size = 9
         self.boxes_per_cell = 3
         self.track_num = 30
-        self.img_size = 576
+        self.img_size = 360
+        self.GRU_SIZE = 1620
         
         self.coord_scale = 5
         self.object_scale = 20
@@ -34,15 +35,17 @@ class Network:
             self.x = tf.placeholder(dtype=tf.float32, shape=(None,self.img_size, self.img_size, 4), name="img_inputs")
             self.x_nchw = tf.transpose(self.x, perm=[0,3,1,2])
             
-            self.h_state_init_1 = tf.placeholder(dtype=tf.float32, shape=(1, 2592), name="h_state_init1")
-            self.h_state_init_2 = tf.placeholder(dtype=tf.float32, shape=(1, 2592), name="h_state_init2")
+            self.h_state_init_1 = tf.placeholder(dtype=tf.float32, shape=(1, self.GRU_SIZE), name="h_state_init1")
+            self.h_state_init_2 = tf.placeholder(dtype=tf.float32, shape=(1, self.GRU_SIZE), name="h_state_init2")
             _h_state_init = tuple([self.h_state_init_1,self.h_state_init_2])
+            
+            self.det_anno = tf.placeholder(dtype=tf.float32, shape=(None, self.cell_size, self.cell_size, 5), name="det_anno")
             
             # self.cell_state_init = tf.placeholder(dtype=tf.float32, shape=(1, 4096), name="cell_state_init")
             
             self.track_y = tf.placeholder(dtype=tf.float32, shape=(None, self.cell_size * self.cell_size * (5+self.cell_size*self.cell_size+1)), name='track_label')
             
-            mynet = Model(self.x_nchw, _h_state_init, is_training=True, data_format='NCHW', keep_prob=0.5)
+            mynet = Model(self.x_nchw, self.det_anno, _h_state_init, is_training=True, data_format='NCHW', keep_prob=0.5)
 
             coord_flow = mynet.coord_flow
             association_flow = mynet.association_flow
@@ -217,26 +220,33 @@ class Network:
 
         with tf.name_scope('track_loss'):
         
-            tensors = tf.reshape(bbox_tensor,(-1,self.cell_size,self.cell_size,self.boxes_per_cell,5))
-            predict_confidence = tf.reduce_max(tensors[:,:,:,:,0], 3, keep_dims=True) 
-            track_match_predict = tf.reshape(tracking_tensor,(-1, self.cell_size, self.cell_size, self.cell_size*self.cell_size+1))
+            # tensors = tf.reshape(bbox_tensor,(-1,self.cell_size,self.cell_size,self.boxes_per_cell,5))
+            # predict_confidence = tf.reduce_max(tensors[:,:,:,:,0], 3, keep_dims=True) 
+            # track_match_predict = tf.reshape(tracking_tensor,(-1, self.cell_size, self.cell_size, self.cell_size*self.cell_size+1))
+            
+            # label_tensor = tf.reshape(label_y,(-1,self.cell_size,self.cell_size,5+self.cell_size*self.cell_size+1))
+            # label_confidence = tf.expand_dims(label_tensor[:,:,:,0], axis=3)
+            # track_match_label = label_tensor[:, :, :, 5:]
+            # track_match_label *= tf.expand_dims(label_tensor[:,:,:,0],3)
+            
+            # predict_noobject_prob = tf.ones_like(
+                    # predict_confidence, dtype=tf.float32) - predict_confidence
+            # predict_track_tran = tf.concat([predict_noobject_prob, track_match_predict], axis=3)
+            
+            # label_noobject_prob = tf.ones_like(
+                    # label_confidence, dtype=tf.float32) - label_confidence
+            # label_track_tran = tf.concat([label_noobject_prob, track_match_label], axis=3)
+            
+            # cross_entropy = tf.nn.softmax_cross_entropy_with_logits_v2( logits=predict_track_tran, labels=label_track_tran, name='xentropy')
+            
+            # track_loss = tf.reduce_mean(tf.reduce_sum(cross_entropy, reduction_indices=[1, 2]), name='xentropy_mean')
             
             label_tensor = tf.reshape(label_y,(-1,self.cell_size,self.cell_size,5+self.cell_size*self.cell_size+1))
-            label_confidence = tf.expand_dims(label_tensor[:,:,:,0], axis=3)
-            track_match_label = label_tensor[:, :, :, 5:]
-            track_match_label *= tf.expand_dims(label_tensor[:,:,:,0],3)
             
-            predict_noobject_prob = tf.ones_like(
-                    predict_confidence, dtype=tf.float32) - predict_confidence
-            predict_track_tran = tf.concat([predict_noobject_prob, track_match_predict], axis=3)
+            boxes_delta = coord_mask * (tracking_tensor - label_boxes_tran)
             
-            label_noobject_prob = tf.ones_like(
-                    label_confidence, dtype=tf.float32) - label_confidence
-            label_track_tran = tf.concat([label_noobject_prob, track_match_label], axis=3)
+            coord_loss = tf.reduce_mean(tf.reduce_sum(tf.square(boxes_delta), reduction_indices=[1, 2, 3, 4])) * self.coord_scale
             
-            cross_entropy = tf.nn.softmax_cross_entropy_with_logits_v2( logits=predict_track_tran, labels=label_track_tran, name='xentropy')
-            
-            track_loss = tf.reduce_mean(tf.reduce_sum(cross_entropy, reduction_indices=[1, 2]), name='xentropy_mean')
             
             tf.summary.scalar("track_loss", track_loss)
             

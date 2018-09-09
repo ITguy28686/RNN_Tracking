@@ -16,12 +16,12 @@ import argparse
 import re
 
 
-chkpt_file = "network/logs/model.ckpt-18000"
+chkpt_file = "network/logs/model.ckpt-67000"
 # chkpt_file = "network/logs/old_logs/GRU_version/model.ckpt-40000"
 tf_pattern = "train_tf/MOT16-04-*"
 
 train_set = ["MOT16-02","MOT16-04","MOT16-05","MOT16-09","MOT16-10","MOT16-11","MOT16-13"]
-test_set = []
+test_set = ["MOT16-01","MOT16-03","MOT16-06","MOT16-07","MOT16-08","MOT16-12","MOT16-14"]
 
 
 train_dir = "D:/DataSet/MOT16/train/"
@@ -33,6 +33,8 @@ data_format='NCHW'
 cell_size = 9
 track_num = 30
 boxes_per_cell = 3
+GRU_SIZE = 1620
+img_size = 360
 
 offset = np.reshape(np.array(
         [np.arange(cell_size)] * cell_size * boxes_per_cell),
@@ -48,14 +50,14 @@ config = tf.ConfigProto(log_device_placement=False, gpu_options=gpu_options)
 isess = tf.InteractiveSession(config=config)
 
 # Input placeholder.
-img_input = tf.placeholder(dtype=tf.float32, shape=(1,300, 300, 4))
+img_input = tf.placeholder(dtype=tf.float32, shape=(1,img_size, img_size, 4))
 if data_format == 'NCHW' :
     img_input2 = tf.transpose(img_input, perm=[0,3,1,2])
 else :
     img_input2 = img_input
     
-h_state_init_1 = tf.placeholder(dtype=tf.float32, shape=(1, 2048))
-h_state_init_2 = tf.placeholder(dtype=tf.float32, shape=(1, 2048))
+h_state_init_1 = tf.placeholder(dtype=tf.float32, shape=(1, GRU_SIZE))
+h_state_init_2 = tf.placeholder(dtype=tf.float32, shape=(1, GRU_SIZE))
 _h_state_init = tuple([h_state_init_1,h_state_init_2])
 
 track_record = np.zeros((cell_size,cell_size),dtype=np.float32)
@@ -198,9 +200,9 @@ def process_trackid_logits_and_draw(frame_idx, img, confidence, boxes, track_ten
                 
                 track_id = track_record[match_row][match_col]
                 
-                if track_id == 0:
-                    max_track_id += 1
-                    track_id = max_track_id
+                # if track_id == 0:
+                    # max_track_id += 1
+                    # track_id = max_track_id
                 
                 track_record[match_row][match_col] = 0
                 track_record[i][j] = track_id
@@ -340,8 +342,8 @@ def tf_track():
     # ret, _ = cap.read()
 
     #cell_state = np.zeros(4096).reshape(1,4096).astype(np.float32)
-    h_state_1 = np.zeros(2048).reshape(1,2048).astype(np.float32)
-    h_state_2 = np.zeros(2048).reshape(1,2048).astype(np.float32)
+    h_state_1 = np.zeros((1,GRU_SIZE), dtype=np.float32)
+    h_state_2 = np.zeros((1,GRU_SIZE), dtype=np.float32)
     
     img_files = {
             int(os.path.splitext(f)[0]): os.path.join(img_dir, f)
@@ -407,15 +409,15 @@ def encode_det(frame_idx, det_array, img):
     
     rows = det_array[mask]
     
-    mask_img = np.zeros((300,300,1), np.float32)
+    mask_img = np.zeros((img_size,img_size,1), np.float32)
     
     det_tensor = np.zeros((cell_size,cell_size, 5), dtype=np.float32)
     
     for i in range(rows.shape[0]):
-        mask_x = int(rows[i][2]*300)
-        mask_y = int(rows[i][3]*300)
-        mask_w = int(rows[i][4]*300)
-        mask_h = int(rows[i][5]*300)
+        mask_x = int(rows[i][2]*img_size)
+        mask_y = int(rows[i][3]*img_size)
+        mask_w = int(rows[i][4]*img_size)
+        mask_h = int(rows[i][5]*img_size)
         
         # if(mask_x >= 300 or mask_y>= 300):
             # print('%f,%f  %f,%f' % (rows[i][1],rows[i][2],mask_x,mask_y))
@@ -428,11 +430,11 @@ def encode_det(frame_idx, det_array, img):
             mask_h += mask_y
             mask_y = 0
         
-        if(mask_x+mask_w >= 300):
-            mask_w = 300 - mask_x - 1
+        if(mask_x+mask_w >= img_size):
+            mask_w = img_size - mask_x - 1
         
-        if(mask_y+mask_h >= 300):
-            mask_h = 300 - mask_y - 1
+        if(mask_y+mask_h >= img_size):
+            mask_h = img_size - mask_y - 1
         
         for y in range(mask_y,mask_y+mask_h):
             mask_img[y][mask_x] = 1
@@ -479,8 +481,8 @@ def det_track(set_dir, set_name):
     # ret, _ = cap.read()
 
     #cell_state = np.zeros(4096).reshape(1,4096).astype(np.float32)
-    h_state_1 = np.zeros((1,2048), dtype=np.float32)
-    h_state_2 = np.zeros((1,2048), dtype=np.float32)
+    h_state_1 = np.zeros((1,GRU_SIZE), dtype=np.float32)
+    h_state_2 = np.zeros((1,GRU_SIZE), dtype=np.float32)
     
     img_dir = os.path.join(set_dir, "img1")
     detfile = os.path.join(set_dir, "det/det.txt")
@@ -512,7 +514,7 @@ def det_track(set_dir, set_name):
     for frame_idx in range(min_frame_idx, max_frame_idx + 1):
         
         img = cv2.imread(img_files[frame_idx])
-        resized_img = cv2.resize(img, (300, 300))
+        resized_img = cv2.resize(img, (img_size, img_size))
         
         concat_img, frame_det = encode_det(frame_idx, det_array, resized_img)
         
@@ -565,9 +567,13 @@ def main():
     # detect from video file
     # tf_track()
     
-    for set in train_set:
+    # for set in train_set:
+        # track_record = np.zeros((cell_size,cell_size),dtype=np.float32)
+        # det_track(os.path.join(train_dir, set), set)
+        
+    for set in test_set:
         track_record = np.zeros((cell_size,cell_size),dtype=np.float32)
-        det_track(os.path.join(train_dir, set), set)
+        det_track(os.path.join(val_dir, set), set)
 
 
 if __name__ == '__main__':

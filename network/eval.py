@@ -15,10 +15,12 @@ class Learning:
 
         self.logs_dir = FLAGS.logdir
         self.train_logs_path = self.logs_dir + '/train_logs'
+        self.GRU_SIZE = 1620
+        self.cell_size = 9
         
         #self.chkpt_file = self.logs_dir + "/model.ckpt-54000"
-        self.h_state_init_1 = np.zeros(2048).reshape(1,2048).astype(np.float32)
-        self.h_state_init_2 = np.zeros(2048).reshape(1,2048).astype(np.float32)
+        self.h_state_init_1 = np.zeros((1,self.GRU_SIZE), np.float32)
+        self.h_state_init_2 = np.zeros((1,self.GRU_SIZE), np.float32)
         #self.cell_state_init = np.zeros(4096).reshape(1,4096).astype(np.float32)
 
         self.is_training = True
@@ -44,6 +46,8 @@ class Learning:
 
     def next_example(self):
         frame_gt_batch, frame_x_batch = self.train_reader.get_random_example()
+        frame_gt_batch2 = np.array(frame_gt_batch).reshape(-1, self.cell_size, self.cell_size, 5+ self.cell_size* self.cell_size +1)
+        # frame_gt_batch2 = frame_gt_batch2[..., 0:5].reshape(-1,self.cell_size * self.cell_size * 5)
         
         # frame_x_batch = np.transpose(frame_x_batch, [3,0,1,2])
         # frame_x_batch = frame_x_batch[0:3]
@@ -53,6 +57,7 @@ class Learning:
         # print(np.array(frame_x_batch).shape)
         
         return {self.net.x: frame_x_batch,
+                self.net.det_anno: frame_gt_batch2[..., 0:5],
                 self.net.track_y: frame_gt_batch,
                 self.net.h_state_init_1: self.h_state_init_1,
                 self.net.h_state_init_2: self.h_state_init_2

@@ -8,14 +8,16 @@ import tensorflow as tf
 import numpy as np
 
 from utils.dataset_utils import int64_feature, float_feature, bytes_feature
+from utils.recorder import Recorder
 
 
 # MOT_DIR = "D:/DataSet/2DMOT2015"
 MOT_DIR = "D:/DataSet/MOT16"
-img_size = 576
+img_size = 360
 cell_size = 9
 
-track_record = np.zeros((cell_size,cell_size,5),dtype=np.float32) #(top_left_x, top_left_y, _w, _h, track_id)
+# track_record = np.zeros((cell_size,cell_size,5),dtype=np.float32) #(top_left_x, top_left_y, _w, _h, track_id)
+track_record = []
 
 def get_frame_gt(frame_idx, gt_array, last_trackid):
 
@@ -51,35 +53,33 @@ def get_frame_imgmask(frame_idx, gt_array, img_files, gt_tensor):
 
     for i in range(cell_size):
         for j in range(cell_size):
-            mask_x = int(img_size * gt_tensor[i][j][1])
-            mask_y = int(img_size * gt_tensor[i][j][2])
-            mask_w = int(img_size * gt_tensor[i][j][3])
-            mask_h = int(img_size * gt_tensor[i][j][4])
+            mask_x_lt = int(img_size * gt_tensor[i][j][1])
+            mask_y_lt = int(img_size * gt_tensor[i][j][2])
+            mask_x_rd = int(img_size * (gt_tensor[i][j][1] + gt_tensor[i][j][3]))
+            mask_y_rd = int(img_size * (gt_tensor[i][j][2] + gt_tensor[i][j][4]))
             
             # if(mask_x >= 300 or mask_y>= 300):
                 # print('%f,%f  %f,%f' % (rows[i][1],rows[i][2],mask_x,mask_y))
             
-            if(mask_x < 0):
-                mask_w += mask_x
-                mask_x = 0
+            if(mask_x_lt < 0):
+                mask_x_lt = 0
                       
-            if(mask_y < 0):
-                mask_h += mask_y
-                mask_y = 0
+            if(mask_y_lt < 0):
+                mask_y_lt = 0
             
-            if(mask_x+mask_w >= img_size):
-                mask_w = img_size - mask_x - 1
+            if(mask_x_rd >= img_size):
+                mask_x_rd = img_size - 1
             
-            if(mask_y+mask_h >= img_size):
-                mask_h = img_size - mask_y - 1
+            if(mask_y_rd >= img_size):
+                mask_y_rd = img_size - 1
             
-            for y in range(mask_y,mask_y+mask_h):
-                mask_img[y][mask_x] = 1
-                mask_img[y][mask_x+mask_w] = 1
+            for y in range(mask_y_lt,mask_y_rd):
+                mask_img[y][mask_x_lt] = 1
+                mask_img[y][mask_x_rd] = 1
                 
-            for x in range(mask_x,mask_x+mask_w):
-                mask_img[mask_y][x] = 1
-                mask_img[mask_y+mask_h][x] = 1  
+            for x in range(mask_x_lt,mask_x_rd):
+                mask_img[mask_y_lt][x] = 1
+                mask_img[mask_y_rd][x] = 1  
     mask_img = mask_img.astype(np.float32)  
     
     # cv2.imshow("mask_img",mask_img)
@@ -115,8 +115,17 @@ def get_frame_imgmask(frame_idx, gt_array, img_files, gt_tensor):
     
     return frame_concate_mat_shape, frame_concat_mat
 
-def clean_id_inrecord(track_id):
+def find_id_inrecord(track_id):
     global track_record
+    
+    index = 0
+    for rec in track_record:
+        if rec.track_id == track_id:
+            return True, index
+        index += 1
+        
+    return False, index
+
     
 def find_prev_index_inrecord(track_id, y_ind, x_ind):
     global track_record
@@ -130,11 +139,23 @@ def find_prev_index_inrecord(track_id, y_ind, x_ind):
     
     track_record[y_ind][x_ind] = track_id
     return False,None,None
+
     
-    
-    
+def insert_track_mask(arr, x, y, w, h):
+    x_lt = int(x * cell_size)
+    y_lt = int(y * cell_size)
+    x_rd = int((x+w) * cell_size)
+    y_rd = int((y+h) * cell_size)
+
+    for i in range(y_lt, y_rd+1):
+        for j in range(x_lt, x_rd+1):
+            arr[i][j] = True
+            
+            
 def encode_label(row,gt_tensor,last_trackid):
 
+    global track_record
+    
     if(row[2] < 0):
         row[4] += row[2]
         row[2] = 0
@@ -142,6 +163,12 @@ def encode_label(row,gt_tensor,last_trackid):
     if(row[3] < 0):
         row[5] += row[3]
         row[3] = 0
+        
+    if (row[2] + row[4] >= 1):
+        row[4] = 0.999 - row[2]
+        
+    if (row[3] + row[5] >= 1):
+        row[5] = 0.999 - row[3]
 
     #boxes = [row[2] + row[4] / 2.0, row[3] + row[5] / 2.0, row[4], row[5]]
     boxes = row[2:6]
@@ -157,14 +184,28 @@ def encode_label(row,gt_tensor,last_trackid):
     gt_tensor[y_ind, x_ind, 0] = 1
     gt_tensor[y_ind, x_ind, 1:5] = boxes
     
-    match_prev_cell = gt_tensor[y_ind, x_ind, 5:5+cell_size*cell_size].reshape(cell_size,cell_size)
-    is_find,i,j = find_prev_index_inrecord(track_id, y_ind, x_ind)
+    # match_prev_cell = gt_tensor[y_ind, x_ind, 5:5+cell_size*cell_size].reshape(cell_size,cell_size)
+    # is_find,i,j = find_prev_index_inrecord(track_id, y_ind, x_ind)
+    is_find, index = find_id_inrecord(track_id)
+    
+    # if is_find == False:
+        # gt_tensor[y_ind, x_ind, 5+cell_size*cell_size] = 1
+    
+    # else:
+        # match_prev_cell[i][j] = 1
     
     if is_find == False:
+        new_record = Recorder(cell_size,track_id)
+        insert_track_mask(new_record.mask, boxes[0], boxes[1], boxes[2], boxes[3])
+        track_record += [new_record]
         gt_tensor[y_ind, x_ind, 5+cell_size*cell_size] = 1
     
     else:
-        match_prev_cell[i][j] = 1
+        # print("(%d, %d)" % (track_id, track_record[index].track_id))
+        gt_tensor[y_ind, x_ind, 5:5+cell_size*cell_size] = track_record[index].mask.flatten().astype(np.float32)
+        # print(track_record[index].mask)
+        track_record[index].mask = np.zeros((9,9), dtype=np.bool)
+        insert_track_mask(track_record[index].mask, boxes[0], boxes[1], boxes[2], boxes[3])
     
     if(track_id > last_trackid):
         last_trackid += 1
@@ -239,7 +280,8 @@ def run(output_dir):
                     
                     last_trackid = 0
                     global track_record
-                    track_record = np.zeros((cell_size,cell_size),dtype=np.float32)
+                    # track_record = np.zeros((cell_size,cell_size),dtype=np.float32)
+                    track_record = []
                     
                     with tf.python_io.TFRecordWriter(tf_filename) as tfrecord_writer:
                         for frame_idx in range(min_frame_idx+2, max_frame_idx + 1):

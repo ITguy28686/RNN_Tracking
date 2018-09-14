@@ -52,8 +52,8 @@ class Network:
 
             with tf.name_scope('Cost'):
                 
-                coord_loss, iou_predict_truth = self.coord_loss_function(coord_flow, self.track_y, name='coord_loss')
-                ass_loss = self.association_loss(coord_flow, iou_predict_truth, association_flow, self.track_y)
+                coord_loss = self.coord_loss_function(coord_flow, self.track_y, name='coord_loss')
+                ass_loss = self.association_loss(coord_flow, association_flow, self.track_y)
                 
                 reg_losses = tf.get_collection(tf.GraphKeys.REGULARIZATION_LOSSES)
                 
@@ -214,9 +214,9 @@ class Network:
             
             tf.summary.scalar(name, coord_loss)
 
-        return coord_loss + object_loss + noobject_loss, iou_predict_truth
+        return coord_loss + object_loss + noobject_loss
     
-    def association_loss(self, bbox_tensor, iou_predict_truth, tracking_tensor, label_y):
+    def association_loss(self, bbox_tensor, tracking_tensor, label_y):
 
         with tf.name_scope('track_loss'):
         
@@ -241,11 +241,13 @@ class Network:
             
             # track_loss = tf.reduce_mean(tf.reduce_sum(cross_entropy, reduction_indices=[1, 2]), name='xentropy_mean')
             
-            label_tensor = tf.reshape(label_y,(-1,self.cell_size,self.cell_size,5+self.cell_size*self.cell_size+1))
+            _track_predict = tf.reshape(tracking_tensor,(-1,self.cell_size,self.cell_size, self.cell_size*self.cell_size+1))
             
-            boxes_delta = coord_mask * (tracking_tensor - label_boxes_tran)
+            _track_label = tf.reshape(label_y,(-1,self.cell_size,self.cell_size,5+self.cell_size*self.cell_size+1))
             
-            coord_loss = tf.reduce_mean(tf.reduce_sum(tf.square(boxes_delta), reduction_indices=[1, 2, 3, 4])) * self.coord_scale
+            track_delta = _track_predict - _track_label[..., 5:]
+            
+            track_loss = tf.reduce_mean(tf.reduce_sum(tf.square(track_delta), reduction_indices=[1, 2, 3])) * self.track_scale
             
             
             tf.summary.scalar("track_loss", track_loss)

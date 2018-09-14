@@ -6,4 +6,5 @@ class Recorder:
         self.mask = np.zeros((sell_size,sell_size), dtype = np.bool)
         self.track_id = track_id
         self.counter = 0
+        self.hit = True
     

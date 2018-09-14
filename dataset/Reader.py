@@ -15,8 +15,8 @@ class Reader:
         self.init_dataset()
 
     def get_random_example(self):
-        frame_gt_batch, frame_x_batch = self.read_tfrecord(np.random.choice(self.files))
-        return frame_gt_batch, frame_x_batch
+        frame_gt_batch, frame_x_batch, file_name = self.read_tfrecord(np.random.choice(self.files))
+        return frame_gt_batch, frame_x_batch, file_name
 
     def read_tfrecord(self, path):
         frame_gt_batch = []
@@ -39,7 +39,7 @@ class Reader:
         #FLAGS.batch_size = index
         #det_x = self.gen_det_x(np.asarray(frame_det_batch)) #reshape the detection input to [batch_size][x,...,y...,w...,h...] batch_size * 4 * 64 tensor
         #sys.exit(0)
-        return frame_gt_batch, frame_x_batch
+        return frame_gt_batch, frame_x_batch, path
         
     def feature_decode(self,example):
 

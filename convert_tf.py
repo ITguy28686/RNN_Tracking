@@ -11,8 +11,8 @@ from utils.dataset_utils import int64_feature, float_feature, bytes_feature
 from utils.recorder import Recorder
 
 
-# MOT_DIR = "D:/DataSet/2DMOT2015"
-MOT_DIR = "D:/DataSet/MOT16"
+MOT_DIR = "D:/DataSet/2DMOT2015"
+# MOT_DIR = "D:/DataSet/MOT16"
 img_size = 360
 cell_size = 9
 
@@ -25,11 +25,13 @@ def get_frame_gt(frame_idx, gt_array, last_trackid):
     mask = frame_indices == frame_idx
     
     rows = gt_array[mask]
+    if rows.size == 0:
+        return None, None, last_trackid, None
 
     gt_tensor = np.zeros((cell_size,cell_size,5+cell_size*cell_size+1),dtype=np.float32)
 
     for i in range(rows.shape[0]):
-        gt_tensor, last_trackid = encode_label(rows[i], gt_tensor, last_trackid)
+        last_trackid = encode_label(rows[i], gt_tensor, last_trackid)
         # gt_tensor[i] = rows[i][1]       #track_id
         # gt_tensor[i+64] = 1             #conf
         # gt_tensor[i+64*2] = rows[i][2]  #x
@@ -179,7 +181,7 @@ def encode_label(row,gt_tensor,last_trackid):
     y_ind = int(boxes[1] * cell_size)
     
     if gt_tensor[y_ind, x_ind, 0] == 1:
-        return gt_tensor, last_trackid
+        return last_trackid
         
     gt_tensor[y_ind, x_ind, 0] = 1
     gt_tensor[y_ind, x_ind, 1:5] = boxes
@@ -211,7 +213,7 @@ def encode_label(row,gt_tensor,last_trackid):
         last_trackid += 1
         #print(last_trackid)
 
-    return gt_tensor, last_trackid
+    return last_trackid
 
 def convert_to_example(frame_id, frame_gt, frame_concate_mat_shape, frame_concat_mat):
 
@@ -284,13 +286,14 @@ def run(output_dir):
                     track_record = []
                     
                     with tf.python_io.TFRecordWriter(tf_filename) as tfrecord_writer:
-                        for frame_idx in range(min_frame_idx+2, max_frame_idx + 1):
+                        for frame_idx in range(min_frame_idx, max_frame_idx + 1):
 
                             if frame_idx not in img_files:
                                 continue
                             
-                            #frame_det = get_frame_det(frame_idx, det_array, img_files)
                             frame_gt, frame_id, last_trackid, gt_tensor = get_frame_gt(frame_idx, gt_array, last_trackid)
+                            if(frame_gt == None):
+                                continue
                             
                             frame_concate_mat_shape, frame_concat_mat = get_frame_imgmask(frame_idx, gt_array, img_files, gt_tensor)
                             

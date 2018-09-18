@@ -18,7 +18,7 @@ import argparse
 import re
 
 
-chkpt_file = "network/logs/model.ckpt-23000"
+chkpt_file = "network/logs/model.ckpt-22000"
 # chkpt_file = "network/logs/old_logs/GRU_version/model.ckpt-40000"
 tf_pattern = "train_tf/MOT16-04-*"
 
@@ -97,8 +97,27 @@ def feature_decode(example):
         
         return frame_id, frame_mat, frame_gt
 
-def get_coord_loss():
+        
+def get_coord_loss(boxes, frame_det):
+
+    offset2 = np.reshape(np.array(
+            [np.arange(cell_size)] * cell_size),
+            (cell_size, cell_size))
+            
+    offset_tran2 = np.transpose(offset2, (1, 0))
+
+    label_boxes_tran = np.stack([frame_det[..., 1] * cell_size - offset2,
+                                  frame_det[..., 2] * cell_size - offset_tran2,
+                                  np.sqrt(frame_det[..., 3]),
+                                  np.sqrt(frame_det[..., 4])], axis=-1)
     
+    boxes_delta = boxes - label_boxes_tran
+            
+    coord_loss = np.square(boxes_delta).sum() * 5
+    
+    return coord_loss
+    
+
         
 def process_coord_logits(tensor_x,frame_det,img_W,img_H):
 
@@ -111,12 +130,14 @@ def process_coord_logits(tensor_x,frame_det,img_W,img_H):
     
     #sys.exit(0)
     predict_boxes = tensors[..., 1:5]
+    predict_boxes_copy = np.copy(predict_boxes)
+
     
     predict_boxes[..., 0] += offset
     predict_boxes[..., 1] += offset_tran
     predict_boxes[..., :2] = 1.0 * predict_boxes[..., 0:2] / cell_size
     predict_boxes[..., 2:] = np.square(predict_boxes[..., 2:])
-    
+
     predict_boxes[..., 0] *= img_W
     predict_boxes[..., 1] *= img_H
     predict_boxes[..., 2] *= img_W
@@ -124,10 +145,14 @@ def process_coord_logits(tensor_x,frame_det,img_W,img_H):
     
     # det_boxes = frame_det[:,:,1:5]
     boxes = np.zeros((cell_size,cell_size,4))
+    boxes_copy = np.zeros((cell_size,cell_size,4))
     
     confidence = tensors[...,0]
     conf_max_arg = confidence.argmax(axis=2)
+
     confidence = confidence.max(axis=2, keepdims = False)
+    print("conf_max-------------")
+    print(confidence)
     
     for i in range(cell_size):
         for j in range(cell_size):
@@ -135,14 +160,24 @@ def process_coord_logits(tensor_x,frame_det,img_W,img_H):
             boxes[i][j][1] = predict_boxes[i, j, conf_max_arg[i][j], 1]
             boxes[i][j][2] = predict_boxes[i, j, conf_max_arg[i][j], 2]
             boxes[i][j][3] = predict_boxes[i, j, conf_max_arg[i][j], 3]
+            
+            boxes_copy[i][j][0] = predict_boxes_copy[i, j, conf_max_arg[i][j], 0]
+            boxes_copy[i][j][1] = predict_boxes_copy[i, j, conf_max_arg[i][j], 1]
+            boxes_copy[i][j][2] = predict_boxes_copy[i, j, conf_max_arg[i][j], 2]
+            boxes_copy[i][j][3] = predict_boxes_copy[i, j, conf_max_arg[i][j], 3]
 
-
+    loss = get_coord_loss(boxes_copy, frame_det)
+    print("loss = " + str(loss))
+    
     # boxes = np.stack([det_boxes[..., 0] * img_W,
                  # det_boxes[..., 1] * img_H,
                  # det_boxes[..., 2] * img_W,
                  # det_boxes[..., 3] * img_H])
                  
+
+    
     boxes = boxes.astype(np.int32)
+    
     # boxes = np.transpose(boxes, [2, 0, 1])
         
     return confidence, boxes
@@ -343,10 +378,13 @@ def process_image(frame_idx, img, concat_img, frame_det, h_state_1, h_state_2):
                                                               
     frame_det_tensor = np.expand_dims(frame_det, axis = 0)
     
-    print(frame_det_tensor)
-    print(frame_det_tensor.shape)
+    # print(frame_det_tensor)
+    # print(frame_det_tensor.shape)
+    
+    print(concat_img)
+    print(concat_img.shape)
     coord_flow, association_flow, rnn_state = isess.run([mynet.coord_flow, mynet.association_flow, mynet.rnn_state],feed_dict={img_input: concat_img,
-                                                                                                                                det_anno: frame_det_tensor,
+                                                                                                                                # det_anno: frame_det_tensor,
                                                                                                                                 h_state_init_1: h_state_1,
                                                                                                                                 h_state_init_2: h_state_2})
     
@@ -372,7 +410,7 @@ def process_image(frame_idx, img, concat_img, frame_det, h_state_1, h_state_2):
     timeout = 150
     remove_outdate_record(timeout)
     
-    sys.exit(0)
+    # sys.exit(0)
     
     return img, h_state_1, h_state_2, record
 	
@@ -429,7 +467,7 @@ def tf_track():
         
             #cv2.imshow("det_mask",det_mask)
             cv2.imshow("result",result_img)
-            cv2.waitKey(1)
+            cv2.waitKey(0)
         
             out.write(result_img)
             
@@ -522,10 +560,10 @@ def encode_det(frame_idx, det_array, img):
     concat_img = np.concatenate((img_f, mask_img),axis = 2)
     concat_img = np.expand_dims(concat_img, axis = 0)
     
-    print(det_tensor)
-    cv2.imshow("mask",mask_img)
-    cv2.waitKey(0)
-    print("/////////////////////////////////")
+    # print(det_tensor)
+    # cv2.imshow("mask",mask_img)
+    # cv2.waitKey(0)
+    # print("/////////////////////////////////")
 
     return concat_img, det_tensor
 
@@ -594,8 +632,8 @@ def det_track(set_dir, set_name):
         #det_mask = concat_img[0][...,3].copy()
     
         #cv2.imshow("det_mask",det_mask)
-        cv2.imshow("result",result_img)
-        cv2.waitKey(1)
+        # cv2.imshow("result",result_img)
+        # cv2.waitKey(0)
     
         out.write(result_img)
         

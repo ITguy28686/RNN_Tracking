@@ -50,11 +50,11 @@ class Model:
             tensor_flow = slim.flatten(img_flow, scope='flat_10')
             tensor_flow = slim.fully_connected(tensor_flow, self.GRU_SIZE, scope='fc_12' )
             
-            with tf.variable_scope("det_anno"):
-                det_anno = tf.reshape(det_anno, (-1, self.cell_size * self.cell_size * 5))
-                tensor_flow = tf.concat([tensor_flow, det_anno], axis = 1)
-                tensor_flow = slim.fully_connected(tensor_flow, self.GRU_SIZE*2, scope='anno_fc' )
-                tensor_flow = slim.fully_connected(tensor_flow, self.GRU_SIZE, scope='anno_fc2' )
+            # with tf.variable_scope("det_anno"):
+                # det_anno = tf.reshape(det_anno, (-1, self.cell_size * self.cell_size * 5))
+                # tensor_flow = tf.concat([tensor_flow, det_anno], axis = 1)
+                # tensor_flow = slim.fully_connected(tensor_flow, self.GRU_SIZE*2, scope='anno_fc' )
+                # tensor_flow = slim.fully_connected(tensor_flow, self.GRU_SIZE, scope='anno_fc2' )
                 
             
             # LSTM_layer

@@ -18,7 +18,7 @@ import argparse
 import re
 
 
-chkpt_file = "network/logs/model.ckpt-22000"
+chkpt_file = "network/logs/model.ckpt-20000"
 # chkpt_file = "network/logs/old_logs/GRU_version/model.ckpt-40000"
 tf_pattern = "train_tf/MOT16-04-*"
 
@@ -37,9 +37,9 @@ track_num = 30
 boxes_per_cell = 3
 GRU_SIZE = 1620
 img_size = 360
-track_thresh = 0.2
+track_thresh = 0.5
 object_tresh = 0.2
-match_thresh = 0.5
+match_thresh = 0.2
 
 offset = np.reshape(np.array(
         [np.arange(cell_size)] * cell_size * boxes_per_cell),
@@ -98,7 +98,7 @@ def feature_decode(example):
         return frame_id, frame_mat, frame_gt
 
         
-def get_coord_loss(boxes, frame_det):
+def get_coord_loss(confidence, boxes, frame_det):
 
     offset2 = np.reshape(np.array(
             [np.arange(cell_size)] * cell_size),
@@ -111,11 +111,19 @@ def get_coord_loss(boxes, frame_det):
                                   np.sqrt(frame_det[..., 3]),
                                   np.sqrt(frame_det[..., 4])], axis=-1)
     
-    boxes_delta = boxes - label_boxes_tran
+    
+    # print("label_boxes_tran-------------")
+    # print(label_boxes_tran)
+    
+    boxes_delta = np.expand_dims(frame_det[..., 0], axis=2) * (boxes - label_boxes_tran)
             
     coord_loss = np.square(boxes_delta).sum() * 5
     
-    return coord_loss
+    conf_delta = np.expand_dims(frame_det[..., 0], axis=2) * (confidence - frame_det[..., 0])
+    
+    conf_loss = np.square(conf_delta).sum() * 2
+    
+    return conf_loss, coord_loss
     
 
         
@@ -130,7 +138,9 @@ def process_coord_logits(tensor_x,frame_det,img_W,img_H):
     
     #sys.exit(0)
     predict_boxes = tensors[..., 1:5]
-    predict_boxes_copy = np.copy(predict_boxes)
+    # predict_boxes_copy = np.copy(predict_boxes)
+    # print("predict_boxes_copy-------------")
+    # print(predict_boxes_copy)
 
     
     predict_boxes[..., 0] += offset
@@ -145,14 +155,14 @@ def process_coord_logits(tensor_x,frame_det,img_W,img_H):
     
     # det_boxes = frame_det[:,:,1:5]
     boxes = np.zeros((cell_size,cell_size,4))
-    boxes_copy = np.zeros((cell_size,cell_size,4))
+    # boxes_copy = np.zeros((cell_size,cell_size,4))
     
     confidence = tensors[...,0]
     conf_max_arg = confidence.argmax(axis=2)
 
     confidence = confidence.max(axis=2, keepdims = False)
-    print("conf_max-------------")
-    print(confidence)
+    # print("conf_max-------------")
+    # print(confidence)
     
     for i in range(cell_size):
         for j in range(cell_size):
@@ -161,13 +171,13 @@ def process_coord_logits(tensor_x,frame_det,img_W,img_H):
             boxes[i][j][2] = predict_boxes[i, j, conf_max_arg[i][j], 2]
             boxes[i][j][3] = predict_boxes[i, j, conf_max_arg[i][j], 3]
             
-            boxes_copy[i][j][0] = predict_boxes_copy[i, j, conf_max_arg[i][j], 0]
-            boxes_copy[i][j][1] = predict_boxes_copy[i, j, conf_max_arg[i][j], 1]
-            boxes_copy[i][j][2] = predict_boxes_copy[i, j, conf_max_arg[i][j], 2]
-            boxes_copy[i][j][3] = predict_boxes_copy[i, j, conf_max_arg[i][j], 3]
+            # boxes_copy[i][j][0] = predict_boxes_copy[i, j, conf_max_arg[i][j], 0]
+            # boxes_copy[i][j][1] = predict_boxes_copy[i, j, conf_max_arg[i][j], 1]
+            # boxes_copy[i][j][2] = predict_boxes_copy[i, j, conf_max_arg[i][j], 2]
+            # boxes_copy[i][j][3] = predict_boxes_copy[i, j, conf_max_arg[i][j], 3]
 
-    loss = get_coord_loss(boxes_copy, frame_det)
-    print("loss = " + str(loss))
+    # conf_loss, loss = get_coord_loss(confidence, boxes_copy, frame_det)
+    # print("loss = " + str(conf_loss) +", " + str(loss))
     
     # boxes = np.stack([det_boxes[..., 0] * img_W,
                  # det_boxes[..., 1] * img_H,
@@ -183,14 +193,47 @@ def process_coord_logits(tensor_x,frame_det,img_W,img_H):
     return confidence, boxes
     
 def cal_match(mask1, mask2):
-    _outer = sum((mask1 and mask2))
+    _outer = np.sum((mask1 | mask2))
     
-    _inner = sum((mask1 or mask2))
+    _inner = np.sum((mask1 & mask2))
     
+    # print("\nmask1:---------")
+    # print(mask1)
+    # print("\nmask2:---------")
+    # print(mask2)
     if ( _outer == 0 ):
         return 0
     
     return _inner/_outer
+
+def box_to_mask(box,W,H):
+
+    # print(box)
+    mask = np.zeros((cell_size,cell_size), dtype = np.bool)
+    
+    x_lt = int(box[0]/W * cell_size)
+    y_lt = int(box[1]/H * cell_size)
+    x_rd = int((box[0]+box[2])/W * cell_size) + 1
+    y_rd = int((box[1]+box[3])/H * cell_size) + 1
+    
+    # print("219999999")
+    # print(x_lt,y_lt,x_rd,y_rd)
+    
+    x_lt = max(0, min(cell_size, x_lt))
+    y_lt = max(0, min(cell_size, y_lt))
+    x_rd = max(0, min(cell_size, x_rd))
+    y_rd = max(0, min(cell_size, y_rd))
+    
+    # print("2277777777")
+    # print(x_lt,y_lt,x_rd,y_rd)
+
+    for i in range(y_lt, y_rd):
+        for j in range(x_lt, x_rd):
+            mask[i][j] = True
+            
+    return mask
+    
+    
     
     
 def process_trackid_logits_and_draw(frame_idx, img, confidence, boxes, track_tensor):
@@ -213,7 +256,7 @@ def process_trackid_logits_and_draw(frame_idx, img, confidence, boxes, track_ten
     # print(max_prob_track.dtype)
     
     record = []
-    print(confidence)
+    # print(confidence)
     
     for i in range(cell_size):
         for j in range(cell_size):
@@ -221,16 +264,18 @@ def process_trackid_logits_and_draw(frame_idx, img, confidence, boxes, track_ten
             if(confidence[i][j] < object_tresh):
                 continue
             
-            print(210)
+            # print(210)
             track_mask = track_prob[i][j] >= track_thresh
             
             if(track_mask[cell_size*cell_size] == True):
                 max_track_id += 1
                 new_record = Recorder(cell_size, max_track_id)
+                new_record.mask = box_to_mask(boxes[i][j],img.shape[1],img.shape[0])
                 track_record.insert(0, new_record)
                 draw_frame(img, i, j, boxes, max_track_id)
                 continue
             
+            track_mask = track_mask[:cell_size*cell_size].reshape(cell_size,cell_size)
             max_value = 0
             max_index = -1
             for k in range(len(track_record)):
@@ -239,20 +284,23 @@ def process_trackid_logits_and_draw(frame_idx, img, confidence, boxes, track_ten
                     continue
                     
                 match_value = cal_match(track_record[k].mask, track_mask)
-                if(match_value >= match_thresh & match_value > max_value):
+                if(match_value >= match_thresh and match_value > max_value):
                     max_index = k
                     max_value = match_value
                     
             if (max_index == -1):
                 max_track_id += 1
                 new_record = Recorder(cell_size, max_track_id)
+                new_record.mask = box_to_mask(boxes[i][j],img.shape[1],img.shape[0])
                 track_record.insert(0, new_record)
                 draw_frame(img, i, j, boxes, max_track_id)
                 continue
                     
-            track_record[max_index].hit = True
             draw_frame(img, i, j, boxes, track_record[max_index].track_id)
-            track_record[max_index].mask = track_mask
+            track_record[max_index].mask = box_to_mask(boxes[i][j],img.shape[1],img.shape[0])
+            track_record[max_index].hit = True
+            track_record[max_index].counter = 0
+            track_record.insert(0, track_record.pop(max_index))
             
             # cv2.waitKey(0)
                 # record += [[frame_idx, track_id, boxes[i][j][0], boxes[i][j][1], boxes[i][j][2], boxes[i][j][3]]]
@@ -381,8 +429,8 @@ def process_image(frame_idx, img, concat_img, frame_det, h_state_1, h_state_2):
     # print(frame_det_tensor)
     # print(frame_det_tensor.shape)
     
-    print(concat_img)
-    print(concat_img.shape)
+    # print(concat_img)
+    # print(concat_img.shape)
     coord_flow, association_flow, rnn_state = isess.run([mynet.coord_flow, mynet.association_flow, mynet.rnn_state],feed_dict={img_input: concat_img,
                                                                                                                                 # det_anno: frame_det_tensor,
                                                                                                                                 h_state_init_1: h_state_1,
@@ -577,8 +625,8 @@ def det_track(set_dir, set_name):
     global max_track_id
     max_track_id = 0
 
-    #cv2.namedWindow("result", cv2.WINDOW_NORMAL)
-    #cv2.resizeWindow('result', 1280,768)
+    cv2.namedWindow("result", cv2.WINDOW_NORMAL)
+    cv2.resizeWindow('result', 1280,768)
     detect_timer = Timer()
     # cap = cv2.VideoCapture(video)
     # ret, _ = cap.read()
@@ -632,8 +680,9 @@ def det_track(set_dir, set_name):
         #det_mask = concat_img[0][...,3].copy()
     
         #cv2.imshow("det_mask",det_mask)
-        # cv2.imshow("result",result_img)
-        # cv2.waitKey(0)
+        cv2.imshow("result",result_img)
+        # sys.exit(0)
+        cv2.waitKey(1)
     
         out.write(result_img)
         
@@ -670,13 +719,13 @@ def main():
     # detect from video file
     # tf_track()
     
-    for set in train_set:
-        track_record = np.zeros((cell_size,cell_size),dtype=np.float32)
-        det_track(os.path.join(train_dir, set), set)
-        
-    # for set in test_set:
+    # for set in train_set:
         # track_record = np.zeros((cell_size,cell_size),dtype=np.float32)
-        # det_track(os.path.join(val_dir, set), set)
+        # det_track(os.path.join(train_dir, set), set)
+        
+    for set in test_set:
+        track_record = np.zeros((cell_size,cell_size),dtype=np.float32)
+        det_track(os.path.join(val_dir, set), set)
 
 
 if __name__ == '__main__':

@@ -146,11 +146,11 @@ def find_prev_index_inrecord(track_id, y_ind, x_ind):
 def insert_track_mask(arr, x, y, w, h):
     x_lt = int(x * cell_size)
     y_lt = int(y * cell_size)
-    x_rd = int((x+w) * cell_size)
-    y_rd = int((y+h) * cell_size)
+    x_rd = int((x+w) * cell_size) + 1
+    y_rd = int((y+h) * cell_size) + 1
 
-    for i in range(y_lt, y_rd+1):
-        for j in range(x_lt, x_rd+1):
+    for i in range(y_lt, y_rd):
+        for j in range(x_lt, x_rd):
             arr[i][j] = True
             
             

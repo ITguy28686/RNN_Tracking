@@ -17,9 +17,9 @@ class Network:
         self.GRU_SIZE = 1620
         
         self.coord_scale = 5
-        self.object_scale = 20
-        self.noobject_scale = 20
-        self.track_scale = 2
+        self.object_scale = 2
+        self.noobject_scale = 2
+        self.track_scale = 1
         
         self.offset = np.transpose(np.reshape(np.array(
             [np.arange(self.cell_size)] * self.cell_size * self.boxes_per_cell),
@@ -190,7 +190,7 @@ class Network:
             noobject_mask = tf.ones_like(
                 object_mask, dtype=tf.float32) - object_mask
             
-            object_loss = tf.reduce_mean(tf.reduce_sum(tf.square(object_mask * ( predict_confidence - iou_predict_truth)),
+            object_loss = tf.reduce_mean(tf.reduce_sum(tf.square(object_mask * ( predict_confidence - label_confidence)),
                                         reduction_indices=[1, 2, 3]), name='object_loss') * self.object_scale
                                         
             noobject_loss = tf.reduce_mean(tf.reduce_sum(tf.square(noobject_mask * predict_confidence),
@@ -216,7 +216,7 @@ class Network:
 
         return coord_loss + object_loss + noobject_loss
     
-    def association_loss(self, bbox_tensor, tracking_tensor, label_y):
+    def association_loss(self, bbox_tensor, track_tensor, label_y):
 
         with tf.name_scope('track_loss'):
         
@@ -241,11 +241,16 @@ class Network:
             
             # track_loss = tf.reduce_mean(tf.reduce_sum(cross_entropy, reduction_indices=[1, 2]), name='xentropy_mean')
             
-            _track_predict = tf.reshape(tracking_tensor,(-1,self.cell_size,self.cell_size, self.cell_size*self.cell_size+1))
+            label_tensor = tf.reshape(label_y,(-1,self.cell_size,self.cell_size, 5+self.cell_size*self.cell_size+1))
             
-            _track_label = tf.reshape(label_y,(-1,self.cell_size,self.cell_size,5+self.cell_size*self.cell_size+1))
+            track_trackmask = tf.reshape(track_tensor,(-1,self.cell_size,self.cell_size, self.cell_size*self.cell_size+1))
             
-            track_delta = _track_predict - _track_label[..., 5:]
+            label_confidence = tf.reshape(label_tensor[..., 0],
+                                [-1, self.cell_size, self.cell_size, 1])
+                                
+            label_trackmask = label_tensor[..., 5:]
+            
+            track_delta = label_confidence * (track_trackmask - label_trackmask)
             
             track_loss = tf.reduce_mean(tf.reduce_sum(tf.square(track_delta), reduction_indices=[1, 2, 3])) * self.track_scale
             

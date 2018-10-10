@@ -45,8 +45,7 @@ class Learning:
         return global_step
 
     def next_example(self):
-        frame_gt_batch, frame_x_batch, file_name = self.train_reader.get_random_example()
-        frame_gt_batch2 = np.array(frame_gt_batch).reshape(-1, self.cell_size, self.cell_size, 5+ self.cell_size* self.cell_size +1)
+        frame_gt_batch, frame_x_batch, ass_matrix_gt, e_vector_gt_batch, file_name = self.train_reader.get_random_example()
         
         # frame_x_batch = np.transpose(frame_x_batch, [3,0,1,2])
         # frame_x_batch = frame_x_batch[0:3]
@@ -60,7 +59,7 @@ class Learning:
         # sys.exit(0)
         
         return {self.net.x: frame_x_batch,
-                self.net.det_anno: frame_gt_batch2[..., 0:5],
+                self.net.det_anno: frame_gt_batch,
                 self.net.track_y: frame_gt_batch,
                 self.net.h_state_init_1: self.h_state_init_1,
                 self.net.h_state_init_2: self.h_state_init_2

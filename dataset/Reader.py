@@ -15,12 +15,15 @@ class Reader:
         self.init_dataset()
 
     def get_random_example(self):
-        frame_gt_batch, frame_x_batch, file_name = self.read_tfrecord(np.random.choice(self.files))
-        return frame_gt_batch, frame_x_batch, file_name
+        frame_gt_batch, frame_x_batch, ass_matrix_gt, e_vector_gt_batch, file_name = self.read_tfrecord(np.random.choice(self.files))
+        return frame_gt_batch, frame_x_batch, ass_matrix_gt, e_vector_gt_batch, file_name
 
     def read_tfrecord(self, path):
         frame_gt_batch = []
         frame_x_batch = []
+        
+        ass_matrix_gt_batch = []
+        e_vector_gt_batch = []
         
         #index = 0
         #print("path = " + path)
@@ -28,10 +31,13 @@ class Reader:
             example = tf.train.Example()
             example.ParseFromString(string_record)
             
-            frame_gt, frame_mat = self.feature_decode(example)
+            frame_gt, frame_mat, ass_matrix_gt, e_vector_gt = self.feature_decode(example)
             
             frame_gt_batch.append(frame_gt)
             frame_x_batch.append(frame_mat)
+            
+            ass_matrix_gt.append(ass_matrix_gt)
+            e_vector_gt_batch.append(e_vector_gt)
             
             #index += 1
         
@@ -39,12 +45,16 @@ class Reader:
         #FLAGS.batch_size = index
         #det_x = self.gen_det_x(np.asarray(frame_det_batch)) #reshape the detection input to [batch_size][x,...,y...,w...,h...] batch_size * 4 * 64 tensor
         #sys.exit(0)
-        return frame_gt_batch, frame_x_batch, path
+        return frame_gt_batch, frame_x_batch, ass_matrix_gt, e_vector_gt_batch, path
         
     def feature_decode(self,example):
 
         #decode tracking_gt
         frame_gt = example.features.feature['frame_gt'].float_list.value
+        
+        ass_matrix_gt = example.features.feature['ass_matrix_gt'].float_list.value
+        
+        e_vector_gt = example.features.feature['e_vector_gt'].float_list.value
         
         #decode concated mat
         frame_mat_shape = example.features.feature['frame_concate_mat_shape'].int64_list.value
@@ -61,7 +71,7 @@ class Reader:
         # cv2.imshow("Mask", frame_mat[:,:,3].copy())
         # cv2.waitKey(0)
         
-        return frame_gt, frame_mat
+        return frame_gt, frame_mat, ass_matrix_gt, e_vector_gt
         
     def parse_tfr_filename(self, path):
         filename, ext = os.path.splitext(path)

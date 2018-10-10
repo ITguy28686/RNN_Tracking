@@ -15,6 +15,7 @@ class Network:
         self.track_num = 30
         self.img_size = 360
         self.GRU_SIZE = 1620
+        self.record_N = 256
         
         self.coord_scale = 5
         self.object_scale = 2
@@ -37,15 +38,18 @@ class Network:
             
             self.h_state_init_1 = tf.placeholder(dtype=tf.float32, shape=(1, self.GRU_SIZE), name="h_state_init1")
             self.h_state_init_2 = tf.placeholder(dtype=tf.float32, shape=(1, self.GRU_SIZE), name="h_state_init2")
-            _h_state_init = tuple([self.h_state_init_1,self.h_state_init_2])
+            # _h_state_init = tuple([self.h_state_init_1,self.h_state_init_2])
             
-            self.det_anno = tf.placeholder(dtype=tf.float32, shape=(None, self.cell_size, self.cell_size, 5), name="det_anno")
+            self.det_anno = tf.placeholder(dtype=tf.float32, shape=(None, self.cell_size * self.cell_size * 5), name="det_anno")
+            self.prev_asscoia = tf.placeholder(dtype=tf.float32, shape=(None, record_N * (cell_size*cell_size+1)), name="prev_asscoia")
             
             # self.cell_state_init = tf.placeholder(dtype=tf.float32, shape=(1, 4096), name="cell_state_init")
             
-            self.track_y = tf.placeholder(dtype=tf.float32, shape=(None, self.cell_size * self.cell_size * (5+self.cell_size*self.cell_size+1)), name='track_label')
+            self.track_y = tf.placeholder(dtype=tf.float32, shape=(None, self.cell_size * self.cell_size * 5, name='track_label')
+            self.current_asscoia = tf.placeholder(dtype=tf.float32, shape=(None, record_N * (cell_size*cell_size+1)), name="prev_asscoia")
+            self.epsilon_vector = tf.placeholder(dtype=tf.float32, shape=(None, record_N), name="epsilon_vector")
             
-            mynet = Model(self.x_nchw, self.det_anno, _h_state_init, is_training=True, data_format='NCHW', keep_prob=0.5)
+            mynet = Model(self.x_nchw, self.det_anno, self.prev_asscoia, self.h_state_init_1, self.h_state_init_2, is_training=True, data_format='NCHW', keep_prob=0.5)
 
             coord_flow = mynet.coord_flow
             association_flow = mynet.association_flow

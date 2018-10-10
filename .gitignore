@@ -9,6 +9,7 @@ deep_sort/resources/*
 
 
 __pycache__/
+__pycache__/*
 *.py[cod]
 *.avi
 *.jpg

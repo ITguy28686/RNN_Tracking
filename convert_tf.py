@@ -3,6 +3,7 @@ import os
 import sys
 import argparse
 import cv2
+import collections
 
 import tensorflow as tf
 import numpy as np
@@ -11,13 +12,55 @@ from utils.dataset_utils import int64_feature, float_feature, bytes_feature
 from utils.recorder import Recorder
 
 
-MOT_DIR = "D:/DataSet/2DMOT2015"
-# MOT_DIR = "D:/DataSet/MOT16"
+# MOT_DIR = "D:/DataSet/2DMOT2015"
+MOT_DIR = "D:/DataSet/MOT16"
 img_size = 360
+record_N = 256
 cell_size = 9
 
 # track_record = np.zeros((cell_size,cell_size,5),dtype=np.float32) #(top_left_x, top_left_y, _w, _h, track_id)
 track_record = []
+
+#row = (frame_index, track_id, x, y, w, h)
+def get_associa_gt(frame_idx, gt_array, alive_dict, tackid_grid_vector):
+
+    global track_record
+
+    frame_indices = gt_array[:, 0].astype(np.int)
+    mask = frame_indices == frame_idx
+    
+    rows = gt_array[mask]
+
+    ass_matrix = np.zeros((record_N,cell_size*cell_size+1),dtype=np.float32)
+    ass_matrix[:, -1] = 1
+    
+    
+    e_vector = np.zeros((record_N),dtype=np.float32)
+
+    for i in range(rows.shape[0]):
+        id = int(rows[i][1])
+        if id not in track_record:
+            track_record += [id]
+            # ass_matrix[len(track_record)-1][tackid_grid_vector[id][0]*cell_size+tackid_grid_vector[id][1]] = 1
+            # e_vector[len(track_record)-1] = 1
+            
+    # print(track_record)        
+    for i in range(len(track_record)):
+        if( alive_dict[track_record[i]] < frame_idx):
+            track_record[i] = 0
+            
+        if track_record[i] != 0 and track_record[i] in tackid_grid_vector.keys():
+            id = track_record[i]
+            ass_matrix[i][-1] = 0
+            ass_matrix[i][tackid_grid_vector[id][0]*cell_size+tackid_grid_vector[id][1]] = 1
+            e_vector[i] = 1
+            # print("track: " + str(i))
+            
+            
+    ass_matrix_gt = float_feature(ass_matrix.flatten().tolist())
+    e_vector_gt = float_feature(e_vector.flatten().tolist())
+    
+    return ass_matrix_gt, e_vector_gt
 
 def get_frame_gt(frame_idx, gt_array, last_trackid):
 
@@ -26,12 +69,19 @@ def get_frame_gt(frame_idx, gt_array, last_trackid):
     
     rows = gt_array[mask]
     if rows.size == 0:
-        return None, None, last_trackid, None
+        return None, None, last_trackid, None, None
 
-    gt_tensor = np.zeros((cell_size,cell_size,5+cell_size*cell_size+1),dtype=np.float32)
-
+    gt_tensor = np.zeros((cell_size,cell_size,5),dtype=np.float32)
+    
+    tackid_grid_vector = collections.defaultdict(list)
+    
     for i in range(rows.shape[0]):
-        last_trackid = encode_label(rows[i], gt_tensor, last_trackid)
+        last_trackid, tackid_grid = encode_label(rows[i], gt_tensor, last_trackid)
+        
+        if tackid_grid is not None:
+            # print(tackid_grid)
+            tackid_grid_vector[int(rows[i][1])].append(tackid_grid[0])
+            tackid_grid_vector[int(rows[i][1])].append(tackid_grid[1])
         # gt_tensor[i] = rows[i][1]       #track_id
         # gt_tensor[i+64] = 1             #conf
         # gt_tensor[i+64*2] = rows[i][2]  #x
@@ -42,7 +92,9 @@ def get_frame_gt(frame_idx, gt_array, last_trackid):
     frame_gt = float_feature(gt_tensor.flatten().tolist())
     frame_id = int64_feature(frame_idx)
     
-    return frame_gt, frame_id, last_trackid, gt_tensor
+    # print(tackid_grid_vector)
+    
+    return frame_gt, frame_id, last_trackid, gt_tensor, tackid_grid_vector
     
 def get_frame_imgmask(frame_idx, gt_array, img_files, gt_tensor):
 
@@ -129,18 +181,18 @@ def find_id_inrecord(track_id):
     return False, index
 
     
-def find_prev_index_inrecord(track_id, y_ind, x_ind):
-    global track_record
+# def find_prev_index_inrecord(track_id, y_ind, x_ind):
+    # global track_record
     
-    for i in range(cell_size):
-        for j in range(cell_size):
-            if track_record[i][j] == track_id :
-                track_record[i][j] = 0
-                track_record[y_ind][x_ind] = track_id
-                return True,i,j
+    # for i in range(cell_size):
+        # for j in range(cell_size):
+            # if track_record[i][j] == track_id :
+                # track_record[i][j] = 0
+                # track_record[y_ind][x_ind] = track_id
+                # return True,i,j
     
-    track_record[y_ind][x_ind] = track_id
-    return False,None,None
+    # track_record[y_ind][x_ind] = track_id
+    # return False,None,None
 
     
 def insert_track_mask(arr, x, y, w, h):
@@ -154,7 +206,7 @@ def insert_track_mask(arr, x, y, w, h):
             arr[i][j] = True
             
             
-def encode_label(row,gt_tensor,last_trackid):
+def encode_label(row, gt_tensor, last_trackid):
 
     global track_record
     
@@ -181,14 +233,16 @@ def encode_label(row,gt_tensor,last_trackid):
     y_ind = int(boxes[1] * cell_size)
     
     if gt_tensor[y_ind, x_ind, 0] == 1:
-        return last_trackid
-        
+        return last_trackid, None
+    
     gt_tensor[y_ind, x_ind, 0] = 1
     gt_tensor[y_ind, x_ind, 1:5] = boxes
     
+    tackid_grid = (y_ind, x_ind)
+    
     # match_prev_cell = gt_tensor[y_ind, x_ind, 5:5+cell_size*cell_size].reshape(cell_size,cell_size)
     # is_find,i,j = find_prev_index_inrecord(track_id, y_ind, x_ind)
-    is_find, index = find_id_inrecord(track_id)
+    # is_find, index = find_id_inrecord(track_id)
     
     # if is_find == False:
         # gt_tensor[y_ind, x_ind, 5+cell_size*cell_size] = 1
@@ -196,36 +250,58 @@ def encode_label(row,gt_tensor,last_trackid):
     # else:
         # match_prev_cell[i][j] = 1
     
-    if is_find == False:
-        new_record = Recorder(cell_size,track_id)
-        insert_track_mask(new_record.mask, boxes[0], boxes[1], boxes[2], boxes[3])
-        track_record += [new_record]
-        gt_tensor[y_ind, x_ind, 5+cell_size*cell_size] = 1
+    # if is_find == False:
+        # new_record = Recorder(cell_size,track_id)
+        # insert_track_mask(new_record.mask, boxes[0], boxes[1], boxes[2], boxes[3])
+        # track_record += [new_record]
+        # gt_tensor[y_ind, x_ind, 5+cell_size*cell_size] = 1
     
-    else:
-        # print("(%d, %d)" % (track_id, track_record[index].track_id))
-        gt_tensor[y_ind, x_ind, 5:5+cell_size*cell_size] = track_record[index].mask.flatten().astype(np.float32)
-        # print(track_record[index].mask)
-        track_record[index].mask = np.zeros((9,9), dtype=np.bool)
-        insert_track_mask(track_record[index].mask, boxes[0], boxes[1], boxes[2], boxes[3])
+    # else:
+        # gt_tensor[y_ind, x_ind, 5:5+cell_size*cell_size] = track_record[index].mask.flatten().astype(np.float32)
+
+        # track_record[index].mask = np.zeros((9,9), dtype=np.bool)
+        # insert_track_mask(track_record[index].mask, boxes[0], boxes[1], boxes[2], boxes[3])
     
     if(track_id > last_trackid):
         last_trackid += 1
         #print(last_trackid)
 
-    return last_trackid
+    return last_trackid, tackid_grid
 
-def convert_to_example(frame_id, frame_gt, frame_concate_mat_shape, frame_concat_mat):
+def convert_to_example(frame_id, frame_gt, frame_concate_mat_shape, frame_concat_mat, ass_matrix_gt, e_vector_gt):
 
     example = tf.train.Example(features=tf.train.Features(feature={
             'frame_id': frame_id,
             'frame_concate_mat_shape': frame_concate_mat_shape,
             'frame_gt': frame_gt,
             'frame_concat_mat': frame_concat_mat,
+            'ass_matrix_gt': ass_matrix_gt,
+            'e_vector_gt': e_vector_gt
             }))
             
     return example
 
+def gen_alive_matrix(gt_array, min_frame_idx, max_frame_idx):
+    
+    # key: track id, value: missing in what frame
+    alive_dict = collections.defaultdict(int)
+    
+    for frame_idx in range(min_frame_idx, max_frame_idx + 1):
+    
+        frame_indices = gt_array[:, 0].astype(np.int)
+        mask = frame_indices == frame_idx
+        
+        rows = gt_array[mask]
+        
+        for row in rows:
+            trackid = int(row[1])
+            alive_dict[trackid] = frame_idx
+            
+    return alive_dict
+        
+    
+    
+    
     
 def run(output_dir):
     """Runs the conversion operation.
@@ -260,7 +336,7 @@ def run(output_dir):
             with tf.Graph().as_default() as graph:
                 with tf.Session(config=config) as session:
         
-                    det_file = os.path.join(train_data_dir,"det2_"+ str(index)+".npy")
+                    # det_file = os.path.join(train_data_dir,"det2_"+ str(index)+".npy")
                     gt_file = os.path.join(train_data_dir,"hypotheses.txt_"+ str(index))
                     
                     if not os.path.exists(gt_file):
@@ -280,6 +356,11 @@ def run(output_dir):
                     min_frame_idx = frame_indices.astype(np.int).min()
                     max_frame_idx = frame_indices.astype(np.int).max()
                     
+                    alive_dict = gen_alive_matrix(gt_array, min_frame_idx, max_frame_idx)
+                    # print(alive_dict)
+                    
+                    
+                    
                     last_trackid = 0
                     global track_record
                     # track_record = np.zeros((cell_size,cell_size),dtype=np.float32)
@@ -291,13 +372,15 @@ def run(output_dir):
                             if frame_idx not in img_files:
                                 continue
                             
-                            frame_gt, frame_id, last_trackid, gt_tensor = get_frame_gt(frame_idx, gt_array, last_trackid)
+                            frame_gt, frame_id, last_trackid, gt_tensor, tackid_grid_vector = get_frame_gt(frame_idx, gt_array, last_trackid)
                             if(frame_gt == None):
                                 continue
+                                
+                            ass_matrix_gt, e_vector_gt = get_associa_gt(frame_idx, gt_array, alive_dict, tackid_grid_vector)
                             
                             frame_concate_mat_shape, frame_concat_mat = get_frame_imgmask(frame_idx, gt_array, img_files, gt_tensor)
                             
-                            example = convert_to_example(frame_id, frame_gt, frame_concate_mat_shape, frame_concat_mat)
+                            example = convert_to_example(frame_id, frame_gt, frame_concate_mat_shape, frame_concat_mat, ass_matrix_gt, e_vector_gt)
                             tfrecord_writer.write(example.SerializeToString())
                         
                     if os.stat(tf_filename).st_size == 0 :
@@ -305,7 +388,7 @@ def run(output_dir):
                                    
                     index += 1
                     print("------\n")
-            
+        # sys.exit(0)    
     print("Converting Finish")            
 
 

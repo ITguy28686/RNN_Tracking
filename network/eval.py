@@ -17,11 +17,15 @@ class Learning:
         self.train_logs_path = self.logs_dir + '/train_logs'
         self.GRU_SIZE = 1620
         self.cell_size = 9
+        self.max_batch_size = 60
+        self.record_N = 256
         
         #self.chkpt_file = self.logs_dir + "/model.ckpt-54000"
         self.h_state_init_1 = np.zeros((1,self.GRU_SIZE), np.float32)
-        self.h_state_init_2 = np.zeros((1,self.GRU_SIZE), np.float32)
+        self.h_state_init_2 = np.zeros((self.max_batch_size,self.GRU_SIZE), np.float32)
         #self.cell_state_init = np.zeros(4096).reshape(1,4096).astype(np.float32)
+        
+        self.prev_asscoia = np.zeros((self.max_batch_size, self.record_N * (self.cell_size * self.cell_size+1)), np.float32)
 
         self.is_training = True
         self._evaluate_train()
@@ -45,24 +49,27 @@ class Learning:
         return global_step
 
     def next_example(self):
-        frame_gt_batch, frame_x_batch, ass_matrix_gt, e_vector_gt_batch, file_name = self.train_reader.get_random_example()
+        frame_gt_batch, frame_x_batch, ass_matrix_gt_batch, e_vector_gt_batch, file_name = self.train_reader.get_random_example()
         
-        # frame_x_batch = np.transpose(frame_x_batch, [3,0,1,2])
-        # frame_x_batch = frame_x_batch[0:3]
-        # frame_x_batch = np.transpose(frame_x_batch, [1,2,3,0])
+        batch_size = len(frame_gt_batch)
+        # print("batch: " + str(batch_size))
         
-        # print(np.array(frame_gt_batch).shape)
-        # print(np.array(frame_x_batch).shape)
+        prev_asscoia = self.prev_asscoia
         
-        # print(file_name)
-        # print(frame_gt_batch2[0, :, :, 0:5])
+        if batch_size > 1:
+            prev_asscoia[1:batch_size] = ass_matrix_gt_batch[:batch_size-1]
         # sys.exit(0)
+        
+        
         
         return {self.net.x: frame_x_batch,
                 self.net.det_anno: frame_gt_batch,
+                self.net.prev_asscoia: prev_asscoia[:batch_size],
                 self.net.track_y: frame_gt_batch,
+                self.net.current_asscoia_y: ass_matrix_gt_batch,
+                self.net.epsilon_vector_y: e_vector_gt_batch,
                 self.net.h_state_init_1: self.h_state_init_1,
-                self.net.h_state_init_2: self.h_state_init_2
+                self.net.h_state_init_2: self.h_state_init_2[:batch_size]
                 }
 
     def _restore_checkpoint_or_init(self, sess):

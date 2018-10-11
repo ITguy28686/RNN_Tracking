@@ -37,31 +37,34 @@ class Network:
             self.x_nchw = tf.transpose(self.x, perm=[0,3,1,2])
             
             self.h_state_init_1 = tf.placeholder(dtype=tf.float32, shape=(1, self.GRU_SIZE), name="h_state_init1")
-            self.h_state_init_2 = tf.placeholder(dtype=tf.float32, shape=(1, self.GRU_SIZE), name="h_state_init2")
+            self.h_state_init_2 = tf.placeholder(dtype=tf.float32, shape=(None, self.GRU_SIZE), name="h_state_init2")
             # _h_state_init = tuple([self.h_state_init_1,self.h_state_init_2])
             
             self.det_anno = tf.placeholder(dtype=tf.float32, shape=(None, self.cell_size * self.cell_size * 5), name="det_anno")
-            self.prev_asscoia = tf.placeholder(dtype=tf.float32, shape=(None, record_N * (cell_size*cell_size+1)), name="prev_asscoia")
+            self.prev_asscoia = tf.placeholder(dtype=tf.float32, shape=(None, self.record_N * (self.cell_size*self.cell_size+1)), name="prev_asscoia")
             
             # self.cell_state_init = tf.placeholder(dtype=tf.float32, shape=(1, 4096), name="cell_state_init")
             
-            self.track_y = tf.placeholder(dtype=tf.float32, shape=(None, self.cell_size * self.cell_size * 5, name='track_label')
-            self.current_asscoia = tf.placeholder(dtype=tf.float32, shape=(None, record_N * (cell_size*cell_size+1)), name="prev_asscoia")
-            self.epsilon_vector = tf.placeholder(dtype=tf.float32, shape=(None, record_N), name="epsilon_vector")
+            self.track_y = tf.placeholder(dtype=tf.float32, shape=(None, self.cell_size * self.cell_size * 5), name='track_label')
+            self.current_asscoia_y = tf.placeholder(dtype=tf.float32, shape=(None, self.record_N * (self.cell_size*self.cell_size+1)), name="prev_asscoia")
+            self.epsilon_vector_y = tf.placeholder(dtype=tf.float32, shape=(None, self.record_N), name="epsilon_vector")
             
             mynet = Model(self.x_nchw, self.det_anno, self.prev_asscoia, self.h_state_init_1, self.h_state_init_2, is_training=True, data_format='NCHW', keep_prob=0.5)
 
             coord_flow = mynet.coord_flow
-            association_flow = mynet.association_flow
+            epsilon_flow = mynet.epsilon_flow
+            associa_flow = mynet.associa_flow
+            rnn_coord_state = mynet.rnn_coord_state
+            rnn_associa_state = mynet.rnn_associa_state
 
             with tf.name_scope('Cost'):
                 
                 coord_loss = self.coord_loss_function(coord_flow, self.track_y, name='coord_loss')
-                ass_loss = self.association_loss(coord_flow, association_flow, self.track_y)
+                track_loss = self.association_loss(epsilon_flow, associa_flow, self.current_asscoia_y, self.epsilon_vector_y, name='track_loss')
                 
                 reg_losses = tf.get_collection(tf.GraphKeys.REGULARIZATION_LOSSES)
                 
-                self.total_loss = tf.add_n([coord_loss + ass_loss ] + reg_losses)
+                self.total_loss = tf.add_n([coord_loss + track_loss ] + reg_losses)
                 # self.total_loss = tf.add_n(reg_losses)
                 
                 tf.summary.scalar("total_loss", self.total_loss)
@@ -152,7 +155,7 @@ class Network:
     def coord_loss_function(self, bbox_tensor, label_y, name='coord_loss'):
 
         tensors = tf.reshape(bbox_tensor,(-1,self.cell_size,self.cell_size,self.boxes_per_cell,5))
-        label_tensor = tf.reshape(label_y,(-1,self.cell_size,self.cell_size,5+self.cell_size*self.cell_size+1))
+        label_tensor = tf.reshape(label_y,(-1,self.cell_size,self.cell_size,5))
         batch_size = tf.shape(bbox_tensor)[0]
         
         predict_confidence = tensors[:,:,:,:,0] # shape = (batch_size,cell_size,cell_size,boxes_per_cell)
@@ -220,7 +223,7 @@ class Network:
 
         return coord_loss + object_loss + noobject_loss
     
-    def association_loss(self, bbox_tensor, track_tensor, label_y):
+    def association_loss(self, epsilon_flow, associa_flow, current_asscoia_y, epsilon_vector_y, name='track_loss'):
 
         with tf.name_scope('track_loss'):
         
@@ -244,24 +247,36 @@ class Network:
             # cross_entropy = tf.nn.softmax_cross_entropy_with_logits_v2( logits=predict_track_tran, labels=label_track_tran, name='xentropy')
             
             # track_loss = tf.reduce_mean(tf.reduce_sum(cross_entropy, reduction_indices=[1, 2]), name='xentropy_mean')
+            #------------------------------------------------------------------------------
             
-            label_tensor = tf.reshape(label_y,(-1,self.cell_size,self.cell_size, 5+self.cell_size*self.cell_size+1))
+            # label_tensor = tf.reshape(label_y,(-1,self.cell_size,self.cell_size, 5+self.cell_size*self.cell_size+1))
             
-            track_trackmask = tf.reshape(track_tensor,(-1,self.cell_size,self.cell_size, self.cell_size*self.cell_size+1))
+            # track_trackmask = tf.reshape(track_tensor,(-1,self.cell_size,self.cell_size, self.cell_size*self.cell_size+1))
             
-            label_confidence = tf.reshape(label_tensor[..., 0],
-                                [-1, self.cell_size, self.cell_size, 1])
+            # label_confidence = tf.reshape(label_tensor[..., 0],
+                                # [-1, self.cell_size, self.cell_size, 1])
                                 
-            label_trackmask = label_tensor[..., 5:]
+            # label_trackmask = label_tensor[..., 5:]
             
-            track_delta = label_confidence * (track_trackmask - label_trackmask)
+            # track_delta = label_confidence * (track_trackmask - label_trackmask)
             
-            track_loss = tf.reduce_mean(tf.reduce_sum(tf.square(track_delta), reduction_indices=[1, 2, 3])) * self.track_scale
+            # track_loss = tf.reduce_mean(tf.reduce_sum(tf.square(track_delta), reduction_indices=[1, 2, 3])) * self.track_scale
             
             
-            tf.summary.scalar("track_loss", track_loss)
+            # tf.summary.scalar("track_loss", track_loss)
+            #-----------------------------------------------------------------------------------
             
-        return track_loss
+            #### Binary Cross Entropy
+            epsilon_loss = tf.reduce_mean(-tf.reduce_sum(epsilon_vector_y * tf.log(epsilon_flow) + (1-epsilon_vector_y)*tf.log(1-epsilon_flow), reduction_indices=[1]))
+            
+            asscoia_y = tf.reshape(current_asscoia_y,(-1, self.record_N ,self.cell_size * self.cell_size+1))
+            associa_loss = tf.reduce_mean(-tf.reduce_sum(asscoia_y * tf.log(associa_flow), reduction_indices=[1,2]))
+            
+            # tf.summary.scalar("epsilon_loss", epsilon_loss)
+            
+            # tf.summary.scalar("associa_loss", associa_loss)
+            
+        return epsilon_loss + associa_loss
     
     @staticmethod
     def print_model():

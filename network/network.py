@@ -60,15 +60,19 @@ class Network:
             with tf.name_scope('Cost'):
                 
                 coord_loss = self.coord_loss_function(coord_flow, self.track_y, name='coord_loss')
-                track_loss = self.association_loss(epsilon_flow, associa_flow, self.current_asscoia_y, self.epsilon_vector_y, name='track_loss')
+                self.epsilon_loss , self.associa_loss = self.association_loss(epsilon_flow, associa_flow, self.current_asscoia_y, self.epsilon_vector_y, name='track_loss')
+                
+                # self.epsilon_loss = tf.Print(self.epsilon_loss,[self.epsilon_loss], message="epsilon_loss:")
+                # self.associa_loss = tf.Print(self.associa_loss,[self.associa_loss], message="associa_loss:")
                 
                 reg_losses = tf.get_collection(tf.GraphKeys.REGULARIZATION_LOSSES)
                 
-                self.total_loss = tf.add_n([coord_loss + track_loss ] + reg_losses)
+                self.total_loss = tf.add_n([coord_loss + self.epsilon_loss + self.associa_loss ] + reg_losses)
                 # self.total_loss = tf.add_n(reg_losses)
                 
                 tf.summary.scalar("total_loss", self.total_loss)
-                
+            
+                    
             with tf.name_scope('Optimizer'):
                 self.global_step = tf.Variable(0, name='global_step', trainable=False)
                 #optimizer = tf.train.GradientDescentOptimizer(FLAGS.lrate)
@@ -267,16 +271,16 @@ class Network:
             #-----------------------------------------------------------------------------------
             
             #### Binary Cross Entropy
-            epsilon_loss = tf.reduce_mean(-tf.reduce_sum(epsilon_vector_y * tf.log(epsilon_flow) + (1-epsilon_vector_y)*tf.log(1-epsilon_flow), reduction_indices=[1]))
+            epsilon_loss = tf.reduce_mean(-tf.reduce_sum(epsilon_vector_y * tf.log(epsilon_flow) + (1-epsilon_vector_y)*tf.log(1-epsilon_flow), reduction_indices=[1])) * self.cell_size
             
             asscoia_y = tf.reshape(current_asscoia_y,(-1, self.record_N ,self.cell_size * self.cell_size+1))
             associa_loss = tf.reduce_mean(-tf.reduce_sum(asscoia_y * tf.log(associa_flow), reduction_indices=[1,2]))
             
-            # tf.summary.scalar("epsilon_loss", epsilon_loss)
+            tf.summary.scalar("epsilon_loss", epsilon_loss)
             
-            # tf.summary.scalar("associa_loss", associa_loss)
+            tf.summary.scalar("associa_loss", associa_loss)
             
-        return epsilon_loss + associa_loss
+        return epsilon_loss , associa_loss
     
     @staticmethod
     def print_model():

@@ -92,7 +92,7 @@ class Model:
                 
                 # associa_flow = tf.transpose(associa_flow, perm=[1,0,2])
                 associa_flow = slim.fully_connected(associa_flow, self.cell_size * self.cell_size + 1, scope='associa_softmax', activation_fn= tf.nn.softmax )
-                # associa_flow = tf.clip_by_value(associa_flow, 0.0001, 1)
+                associa_flow = tf.clip_by_value(associa_flow, 0.0001, 0.9999)
 
             return coord_flow, epsilon_flow, associa_flow, rnn_coord_state, rnn_associa_state
             

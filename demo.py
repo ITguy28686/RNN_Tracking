@@ -18,7 +18,7 @@ import argparse
 import re
 
 
-chkpt_file = "network/logs/model.ckpt-33000"
+chkpt_file = "network/logs/model.ckpt-1000"
 # chkpt_file = "network/logs/old_logs/GRU_version/model.ckpt-40000"
 tf_pattern = "train_tf/MOT16-04-*"
 
@@ -37,6 +37,8 @@ track_num = 30
 boxes_per_cell = 3
 GRU_SIZE = 1620
 img_size = 360
+record_N = 256
+
 track_thresh = 0.4
 object_tresh = 0.2
 match_thresh = 0.4
@@ -62,17 +64,17 @@ else :
     img_input2 = img_input
     
 h_state_init_1 = tf.placeholder(dtype=tf.float32, shape=(1, GRU_SIZE))
-h_state_init_2 = tf.placeholder(dtype=tf.float32, shape=(1, GRU_SIZE))
-_h_state_init = tuple([h_state_init_1,h_state_init_2])
+# h_state_init_2 = tf.placeholder(dtype=tf.float32, shape=(1, GRU_SIZE))
 
-det_anno = tf.placeholder(dtype=tf.float32, shape=(1, cell_size, cell_size, 5))
+det_anno = tf.placeholder(dtype=tf.float32, shape=(1, cell_size * cell_size * 5))
 
+prev_asscoia = tf.placeholder(dtype=tf.float32, shape=(1, record_N * (cell_size*cell_size+1)), name="prev_asscoia")
 
 track_record = []
 max_track_id = 0
 
 graph = tf.Graph()
-mynet = Model(img_input2, det_anno, _h_state_init, is_training=False, keep_prob=1, data_format=data_format)
+mynet = Model(img_input2, det_anno, prev_asscoia, h_state_init_1, is_training=False, keep_prob=1, data_format=data_format)
 
 isess.run(tf.global_variables_initializer())
 
@@ -239,7 +241,7 @@ def box_to_mask(box,W,H):
     
     
     
-def process_trackid_logits_and_draw(frame_idx, img, confidence, boxes, track_tensor):
+def process_trackid_logits_and_draw(frame_idx, img, confidence, boxes, epsilon_flow, associa_flow):
 
     global track_record
     global max_track_id
@@ -248,7 +250,7 @@ def process_trackid_logits_and_draw(frame_idx, img, confidence, boxes, track_ten
 
     #boxes = np.transpose(boxes, [1, 2, 0])
 
-    track_prob = np.reshape(track_tensor,( cell_size, cell_size, cell_size*cell_size+1))
+    associa_prob = np.reshape(associa_flow,( record_N, cell_size*cell_size+1))
     
     # predict_noobject_prob = np.ones_like(
                     # confidence, dtype=np.float32) - confidence
@@ -261,6 +263,12 @@ def process_trackid_logits_and_draw(frame_idx, img, confidence, boxes, track_ten
     record = []
     # print(confidence)
     
+    column_index_of_max_value_every_row = np.argmax(associa_prob, axis=1)
+    row_index_of_max_value_every_column = np.argmax(associa_prob, axis=0)
+    print(row_index_of_max_value_every_column)
+    print(column_index_of_max_value_every_row)
+    np.savetxt('numpy_out.txt', associa_prob, delimiter=',')   # X is an array
+    
     for i in range(cell_size):
         for j in range(cell_size):
             
@@ -268,104 +276,17 @@ def process_trackid_logits_and_draw(frame_idx, img, confidence, boxes, track_ten
                 continue
             
             # print(210)
-            track_mask = track_prob[i][j] >= track_thresh
             
-            if(track_mask[cell_size*cell_size] == True):
-                max_track_id += 1
-                new_record = Recorder(cell_size, max_track_id)
-                new_record.mask = box_to_mask(boxes[i][j],img.shape[1],img.shape[0])
-                track_record.insert(0, new_record)
-                draw_frame(img, i, j, boxes, max_track_id)
-                continue
+            index = i * cell_size + j
             
-            track_mask = track_mask[:cell_size*cell_size].reshape(cell_size,cell_size)
-            max_value = 0
-            max_index = -1
-            for k in range(len(track_record)):
-                
-                if (track_record[k].hit == True):
-                    continue
+            max_id = row_index_of_max_value_every_column[index] + 1
                     
-                match_value = cal_match(track_record[k].mask, track_mask)
-                if(match_value >= match_thresh and match_value > max_value):
-                    max_index = k
-                    max_value = match_value
-                    
-            if (max_index == -1):
-                max_track_id += 1
-                new_record = Recorder(cell_size, max_track_id)
-                new_record.mask = box_to_mask(boxes[i][j],img.shape[1],img.shape[0])
-                track_record.insert(0, new_record)
-                draw_frame(img, i, j, boxes, max_track_id)
-                continue
-                    
-            draw_frame(img, i, j, boxes, track_record[max_index].track_id)
-            track_record[max_index].mask = box_to_mask(boxes[i][j],img.shape[1],img.shape[0])
-            track_record[max_index].hit = True
-            track_record[max_index].counter = 0
-            track_record.insert(0, track_record.pop(max_index))
+            draw_frame(img, i, j, boxes, max_id)
             
             # cv2.waitKey(0)
-                # record += [[frame_idx, track_id, boxes[i][j][0], boxes[i][j][1], boxes[i][j][2], boxes[i][j][3]]]
+            record += [[frame_idx, max_id, boxes[i][j][0], boxes[i][j][1], boxes[i][j][2], boxes[i][j][3]]]
                 
     return img, record
-    
-def gt_trackid_logits_and_draw(img, boxes, gt_tensor):
-
-    global track_record
-    global max_track_id
-
-    # tensors = np.reshape(tensor_x,(cell_size,cell_size,track_num))
-
-    #boxes = np.transpose(boxes, [1, 2, 0])
-    
-    gt_tensor = np.reshape(gt_tensor,(cell_size,cell_size,5+cell_size*cell_size+1))
-    
-    confidence = np.expand_dims(gt_tensor[..., 0], axis = -1)
-    
-    track_prob = np.reshape(gt_tensor[..., 5:],( cell_size, cell_size, cell_size*cell_size+1))
-    
-    predict_noobject_prob = np.ones_like(
-                    confidence, dtype=np.float32) - confidence
-    
-    predict_track_tran = np.concatenate((predict_noobject_prob, track_prob), axis=2)
-    
-    max_prob_track = np.argmax(predict_track_tran, 2)
-    # print(max_prob_track.dtype)
-    
-    for i in range(cell_size):
-        for j in range(cell_size):
-            if max_prob_track[i][j] == 0:
-                continue
-            elif max_prob_track[i][j] == cell_size*cell_size+1:
-                max_track_id += 1
-                track_record[i][j] = max_track_id
-                # print("max id: " + str(max_track_id))
-                img = draw_frame(img, i, j, confidence, boxes, max_track_id)
-            else:
-                match_row = int((max_prob_track[i][j]-1) / cell_size)
-                match_col = (max_prob_track[i][j]-1) % cell_size
-                
-                # print(match_row,match_col,max_prob_track[i][j])
-                # print(track_record)
-                
-                # os.system("pause")
-                
-                # print(match_row,match_col)
-                
-                track_id = track_record[match_row][match_col]
-                
-                # if track_id == 0:
-                    # max_track_id += 1
-                    # track_id = max_track_id
-                
-                # track_record[match_row][match_col] = 0
-                track_record[i][j] = track_id
-                img = draw_frame(img, i, j, confidence, boxes, track_id)
-                
-    return img    
-    
-
     
 def check_point_inbound(point,width,height):
     if point[0] < 0:
@@ -420,37 +341,43 @@ def remove_outdate_record(timeout):
         track_record[i].hit = False
         
 # Main image processing routine.
-def process_image(frame_idx, img, concat_img, frame_det, h_state_1, h_state_2):
+def process_image(frame_idx, img, concat_img, frame_det, prev_asscoia_tensor, h_state_1):
     # Run SSD network.
     # coord_flow, association_flow, coord_flow2, lstm_state = isess.run([mynet.coord_flow, mynet.association_flow, mynet.coord_flow2, mynet.lstm_state],
                                                               # feed_dict={img_input: concat_img, h_state_init: h_state, cell_state_init: cell_state})
                                                               
                                                               
-                                                              
-    frame_det_tensor = np.expand_dims(frame_det, axis = 0)
+    
+    frame_det_tensor = frame_det.flatten()
+    frame_det_tensor = np.expand_dims(frame_det_tensor, axis = 0)
     
     # print(frame_det_tensor)
-    # print(frame_det_tensor.shape)
+    print(frame_det_tensor.shape)
+    print(h_state_1.shape)
     
     # print(concat_img)
     # print(concat_img.shape)
-    coord_flow, association_flow, rnn_state = isess.run([mynet.coord_flow, mynet.association_flow, mynet.rnn_state],feed_dict={img_input: concat_img,
-                                                                                                                                det_anno: frame_det_tensor,
-                                                                                                                                h_state_init_1: h_state_1,
-                                                                                                                                h_state_init_2: h_state_2})
     
-    #print(lstm_state.c,lstm_state.h)
-    # cell_state = lstm_state.c
-    # h_state = lstm_state.h
-    # print(rnn_state)
-    h_state_1 = rnn_state[0]
-    h_state_2 = rnn_state[1]
+    
+    coord_flow, epsilon_flow, associa_flow, rnn_coord_state, rnn_associa_state = isess.run(
+                                        [mynet.coord_flow, mynet.epsilon_flow, mynet.associa_flow, mynet.rnn_coord_state, mynet.rnn_associa_state],
+                                          feed_dict={img_input: concat_img,
+                                                    prev_asscoia: prev_asscoia_tensor,
+                                                    det_anno: frame_det_tensor,
+                                                    h_state_init_1: h_state_1
+                                                    })
+    
+
+    # sys.exit(0)
+    
+    h_state_1 = rnn_coord_state[0]
+    # h_state_2 = rnn_state[1]
     
     # newtrack_conf = np.zeros(8*8)
     # trackid = np.zeros(8*8).reshape(8,8)
     
     confidence, boxes = process_coord_logits(coord_flow, frame_det, img.shape[1], img.shape[0])
-    img, record = process_trackid_logits_and_draw(frame_idx, img, confidence, boxes, association_flow)
+    img, record = process_trackid_logits_and_draw(frame_idx, img, confidence, boxes, epsilon_flow, associa_flow)
     # img = gt_trackid_logits_and_draw(img, boxes, frame_gt)
     
     # draw_frame(img, confidence, boxes, trackid)
@@ -463,75 +390,7 @@ def process_image(frame_idx, img, concat_img, frame_det, h_state_1, h_state_2):
     
     # sys.exit(0)
     
-    return img, h_state_1, h_state_2, record
-	
-
-def tf_track():
-
-    cv2.namedWindow("result", cv2.WINDOW_NORMAL)
-    cv2.resizeWindow('result', 1280,768)
-    detect_timer = Timer()
-    # cap = cv2.VideoCapture(video)
-    # ret, _ = cap.read()
-
-    #cell_state = np.zeros(4096).reshape(1,4096).astype(np.float32)
-    h_state_1 = np.zeros((1,GRU_SIZE), dtype=np.float32)
-    h_state_2 = np.zeros((1,GRU_SIZE), dtype=np.float32)
-    
-    img_files = {
-            int(os.path.splitext(f)[0]): os.path.join(img_dir, f)
-            for f in os.listdir(img_dir)}
-    
-    tf_files = np.array(tf.gfile.Glob(tf_pattern)).tolist()
-    
-    r = re.compile("\d+")
-    #print(r.findall(tf_files[1]))
-    
-    tf_files.sort(key=lambda x: int(r.findall(x)[2]))
-    
-    fourcc = cv2.VideoWriter_fourcc(*'XVID')
-    
-    img_zero = cv2.imread(img_files[1])
-    out = cv2.VideoWriter('output.avi', fourcc, 20.0, (img_zero.shape[1],img_zero.shape[0]))
-    
-    for test_tf in tf_files:
-        for string_record in tf.python_io.tf_record_iterator(path=test_tf):
-            example = tf.train.Example()
-            example.ParseFromString(string_record)
-            
-            frame_id, concat_img, frame_det = feature_decode(example)
-            
-            img = cv2.imread(img_files[frame_id])
-            
-            detect_timer.tic()
-            #print(h_state)
-            
-            
-            frame_det = np.reshape(frame_det,(cell_size,cell_size,5+cell_size*cell_size+1))
-            
-            result_img, h_state_1, h_state_2 = process_image(frame_idx, img, concat_img, frame_det[..., 0:5], h_state_1, h_state_2)
-            # h_state_1 = np.full((1,4096), 100, dtype=np.float32)
-            # h_state_2 = np.full((1,4096), 100, dtype=np.float32)
-            # result_img = draw_frame(img, confidence, boxes, trackid)
-            
-            #det_mask = concat_img[0][...,3].copy()
-        
-            #cv2.imshow("det_mask",det_mask)
-            cv2.imshow("result",result_img)
-            cv2.waitKey(0)
-        
-            out.write(result_img)
-            
-            # visualization.bboxes_draw_on_img(img, rclasses, rscores, rbboxes, visualization.colors_plasma)
-            #visualization.display_video(frame, rclasses, rscores, rbboxes)
-            
-            detect_timer.toc()
-            #print('detecting time: {:.3f}s'.format(detect_timer.diff))
-        #os.system("pause")
-    print('Average detecting time: {:.3f}s'.format(detect_timer.average_time))
-    
-    out.release()
-    cv2.destroyAllWindows()
+    return img, associa_flow, h_state_1, record
 
 
 def encode_det(frame_idx, det_array, img):
@@ -636,7 +495,8 @@ def det_track(set_dir, set_name):
 
     #cell_state = np.zeros(4096).reshape(1,4096).astype(np.float32)
     h_state_1 = np.zeros((1,GRU_SIZE), dtype=np.float32)
-    h_state_2 = np.zeros((1,GRU_SIZE), dtype=np.float32)
+    prev_asscoia_tensor = np.zeros((1,record_N * (cell_size * cell_size+1)), dtype=np.float32)
+    # h_state_2 = np.zeros((1,GRU_SIZE), dtype=np.float32)
     
     img_dir = os.path.join(set_dir, "img1")
     detfile = os.path.join(set_dir, "det/det.txt")
@@ -674,7 +534,7 @@ def det_track(set_dir, set_name):
         
         detect_timer.tic()
         #print(h_state)
-        result_img, h_state_1, h_state_2, record = process_image(frame_idx, img, concat_img, frame_det, h_state_1, h_state_2)
+        result_img, prev_asscoia_tensor, h_state_1, record = process_image(frame_idx, img, concat_img, frame_det, prev_asscoia_tensor, h_state_1)
         video_record += record
         # h_state_1 = np.full((1,4096), 100, dtype=np.float32)
         # h_state_2 = np.full((1,4096), 100, dtype=np.float32)
@@ -685,7 +545,7 @@ def det_track(set_dir, set_name):
         #cv2.imshow("det_mask",det_mask)
         cv2.imshow("result",result_img)
         # sys.exit(0)
-        cv2.waitKey(1)
+        cv2.waitKey(0)
     
         out.write(result_img)
         

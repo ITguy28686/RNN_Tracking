@@ -9,7 +9,7 @@ FLAGS = tf.app.flags.FLAGS
 
 
 class Model:
-    def __init__(self, mat_x, det_anno, prev_asscoia, h_state_init_1, h_state_init_2, is_training, keep_prob, data_format='NCHW'):
+    def __init__(self, mat_x, det_anno, prev_asscoia, h_state_init_1, is_training, keep_prob, data_format='NCHW'):
     
         self.cell_size = 9
         self.boxes_per_cell = 3
@@ -23,12 +23,12 @@ class Model:
         
         self.is_training = is_training
         self.h_state_init_1 = tuple([h_state_init_1])
-        self.h_state_init_2 = tuple([h_state_init_2])
+        # self.h_state_init_2 = tuple([h_state_init_2])
         # self.cell_state_init = cell_state_init
         
-        self.coord_flow, self.epsilon_flow, self.associa_flow, self.rnn_coord_state, self.rnn_associa_state = self.mynet(self.mat_x, self.det_anno, self.prev_asscoia, self.h_state_init_1, self.h_state_init_2, data_format, keep_prob)
+        self.coord_flow, self.epsilon_flow, self.associa_flow, self.rnn_coord_state, self.rnn_associa_state = self.buildnet(self.mat_x, self.det_anno, self.prev_asscoia, self.h_state_init_1, data_format, keep_prob)
     
-    def mynet(self, mat_x, det_anno, prev_asscoia, h_state_init_1, h_state_init_2, data_format='NCHW', keep_prob=0.5) :
+    def buildnet(self, mat_x, det_anno, prev_asscoia, h_state_init_1, data_format='NCHW', keep_prob=0.5) :
         with slim.arg_scope([slim.conv2d, slim.fully_connected],
                             activation_fn=tf.nn.leaky_relu,
                             trainable=self.is_training,
@@ -88,7 +88,8 @@ class Model:
                 
                 associa_input = tf.reshape(associa_input, ( -1, 1, associa_input.get_shape()[1]))
                 associa_input = tf.tile(associa_input, [1, self.record_N, 1])
-                associa_flow, rnn_associa_state = self._gru_layer(input = associa_input, num_units = self.GRU_SIZE, h_state_init = h_state_init_2, scope='GRU_associa')
+                ass_hstate = tuple([tf.zeros((associa_input.get_shape()[0], self.GRU_SIZE))])
+                associa_flow, rnn_associa_state = self._gru_layer(input = associa_input, num_units = self.GRU_SIZE, h_state_init = ass_hstate, scope='GRU_associa')
                 
                 # associa_flow = tf.transpose(associa_flow, perm=[1,0,2])
                 associa_flow = slim.fully_connected(associa_flow, self.cell_size * self.cell_size + 1, scope='associa_softmax', activation_fn= tf.nn.softmax )

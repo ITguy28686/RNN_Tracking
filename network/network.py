@@ -37,7 +37,7 @@ class Network:
             self.x_nchw = tf.transpose(self.x, perm=[0,3,1,2])
             
             self.h_state_init_1 = tf.placeholder(dtype=tf.float32, shape=(1, self.GRU_SIZE), name="h_state_init1")
-            self.h_state_init_2 = tf.placeholder(dtype=tf.float32, shape=(None, self.GRU_SIZE), name="h_state_init2")
+            # self.h_state_init_2 = tf.placeholder(dtype=tf.float32, shape=(None, self.GRU_SIZE), name="h_state_init2")
             # _h_state_init = tuple([self.h_state_init_1,self.h_state_init_2])
             
             self.det_anno = tf.placeholder(dtype=tf.float32, shape=(None, self.cell_size * self.cell_size * 5), name="det_anno")
@@ -49,7 +49,7 @@ class Network:
             self.current_asscoia_y = tf.placeholder(dtype=tf.float32, shape=(None, self.record_N * (self.cell_size*self.cell_size+1)), name="prev_asscoia")
             self.epsilon_vector_y = tf.placeholder(dtype=tf.float32, shape=(None, self.record_N), name="epsilon_vector")
             
-            mynet = Model(self.x_nchw, self.det_anno, self.prev_asscoia, self.h_state_init_1, self.h_state_init_2, is_training=True, data_format='NCHW', keep_prob=0.5)
+            mynet = Model(self.x_nchw, self.det_anno, self.prev_asscoia, self.h_state_init_1, is_training=True, data_format='NCHW', keep_prob=0.5)
 
             coord_flow = mynet.coord_flow
             epsilon_flow = mynet.epsilon_flow

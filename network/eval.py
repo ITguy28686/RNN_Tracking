@@ -68,8 +68,8 @@ class Learning:
                 self.net.track_y: frame_gt_batch,
                 self.net.current_asscoia_y: ass_matrix_gt_batch,
                 self.net.epsilon_vector_y: e_vector_gt_batch,
-                self.net.h_state_init_1: self.h_state_init_1,
-                self.net.h_state_init_2: self.h_state_init_2[:batch_size]
+                self.net.h_state_init_1: self.h_state_init_1
+                # self.net.h_state_init_2: self.h_state_init_2[:batch_size]
                 }
 
     def _restore_checkpoint_or_init(self, sess):

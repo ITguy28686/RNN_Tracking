@@ -16,7 +16,7 @@ from deep_sort import nn_matching
 from deep_sort.detection import Detection
 from deep_sort.tracker import Tracker
 
-batch_size = 60
+batch_size = 60*2
 
 def gather_sequence_info(sequence_dir, detection_file):
     """Gather sequence information, such as image filenames, detections,
@@ -262,8 +262,10 @@ def run(sequence_dir, detection_file, output_file, min_confidence,
                 if not track.is_confirmed() or track.time_since_update > 1:
                     continue
                 bbox = track.to_tlwh()
-                results.append([
-                    frame_idx, track.track_id, bbox[0]/img_w, bbox[1]/img_h, bbox[2]/img_w, bbox[3]/img_h])
+                
+                if ((frame_idx - seq_info["min_frame_idx"])%2 == 0):
+                    results.append([
+                        frame_idx, track.track_id, bbox[0]/img_w, bbox[1]/img_h, bbox[2]/img_w, bbox[3]/img_h])
 
         # Run tracker.
         if display:
@@ -277,11 +279,11 @@ def run(sequence_dir, detection_file, output_file, min_confidence,
         if not os.path.exists(train_data_dir):
             os.makedirs(train_data_dir)
             
-        train_det = os.path.join(train_data_dir, "det2_" + str(i))
+        # train_det = os.path.join(train_data_dir, "det2_" + str(i))
         
         #save det_2
         #print("det_2 shape: " + str(np.asarray(det_2).shape))
-        np.save(train_det, np.asarray(det_2), allow_pickle=False)
+        # np.save(train_det, np.asarray(det_2), allow_pickle=False)
         
         train_gt_hypotheses = os.path.join(train_data_dir, output_file + "_" + str(i))
 

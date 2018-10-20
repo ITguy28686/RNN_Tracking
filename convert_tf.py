@@ -46,17 +46,31 @@ def get_associa_gt(frame_idx, gt_array, alive_dict, tackid_grid_vector):
             
     # print(track_record)        
     for i in range(len(track_record)):
-        if( alive_dict[track_record[i]] < frame_idx):
+        # print(alive_dict[track_record[i]])
+        if( track_record[i] != 0 and alive_dict[track_record[i]][1] < frame_idx):
             track_record[i] = 0
             
         if track_record[i] != 0 and track_record[i] in tackid_grid_vector.keys():
             id = track_record[i]
-            ass_matrix[i][-1] = 0
-            ass_matrix[i][tackid_grid_vector[id][0]*cell_size+tackid_grid_vector[id][1]] = 1
-            e_vector[i] = 1
+            true_id = alive_dict[track_record[i]][2]
+            ass_matrix[true_id][-1] = 0
+            # print(tackid_grid_vector[id][0], tackid_grid_vector[id][1])
+            ass_matrix[true_id][tackid_grid_vector[id][0]*cell_size + tackid_grid_vector[id][1]] = 1
+
             # print("track: " + str(i))
-            
-            
+    
+    for key, value in alive_dict.items():
+        if(value[0] <= frame_idx and value[1] >= frame_idx):
+            e_vector[value[2]] = 1
+    
+    
+    # print(ass_matrix)
+    # print(e_vector)
+    # print('---------------\n')
+    
+    # np.savetxt('numpy_out.txt', ass_matrix.astype(int), delimiter=',', fmt='%i')
+    # sys.exit(0)
+    
     ass_matrix_gt = float_feature(ass_matrix.flatten().tolist())
     e_vector_gt = float_feature(e_vector.flatten().tolist())
     
@@ -283,8 +297,8 @@ def convert_to_example(frame_id, frame_gt, frame_concate_mat_shape, frame_concat
 
 def gen_alive_matrix(gt_array, min_frame_idx, max_frame_idx):
     
-    # key: track id, value: missing in what frame
-    alive_dict = collections.defaultdict(int)
+    # key: track id, value[0], value[1]: existing in what frame range, value[2]: true trackid
+    alive_dict = collections.defaultdict(list)
     
     for frame_idx in range(min_frame_idx, max_frame_idx + 1):
     
@@ -295,8 +309,29 @@ def gen_alive_matrix(gt_array, min_frame_idx, max_frame_idx):
         
         for row in rows:
             trackid = int(row[1])
-            alive_dict[trackid] = frame_idx
             
+            if trackid not in alive_dict.keys():
+                alive_dict[trackid].append(frame_idx)
+                alive_dict[trackid].append(frame_idx)
+            
+            else:
+                alive_dict[trackid][1] = frame_idx
+    
+    max_N = max(alive_dict.keys())
+    
+    empty_indexes = []
+    for i in range(1,max_N+1):
+        if(i not in alive_dict.keys()):
+            empty_indexes += [i]
+            
+    # print(empty_indexes)
+        
+    for key, value in alive_dict.items():
+        n = sum(i < key for i in empty_indexes)
+        alive_dict[key].append(key-n-1)
+        
+    # print(alive_dict)
+    
     return alive_dict
         
     

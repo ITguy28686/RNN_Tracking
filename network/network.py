@@ -4,6 +4,10 @@ import numpy as np
 import tensorflow.contrib.slim as slim
 from network.model import Model
 
+from tensorflow.python.ops import math_ops
+from tensorflow.python.training import training_ops
+# from tensor2tensor.tensor2tensor.utils.adafactor import AdafactorOptimizer
+
 FLAGS = tf.app.flags.FLAGS
 
 
@@ -46,7 +50,7 @@ class Network:
             # self.cell_state_init = tf.placeholder(dtype=tf.float32, shape=(1, 4096), name="cell_state_init")
             
             self.track_y = tf.placeholder(dtype=tf.float32, shape=(None, self.cell_size * self.cell_size * 5), name='track_label')
-            self.current_asscoia_y = tf.placeholder(dtype=tf.float32, shape=(None, self.record_N * (self.cell_size*self.cell_size+1)), name="prev_asscoia")
+            self.current_asscoia_y = tf.placeholder(dtype=tf.float32, shape=(None, (self.record_N+1) * (self.cell_size*self.cell_size+1)), name="prev_asscoia")
             self.epsilon_vector_y = tf.placeholder(dtype=tf.float32, shape=(None, self.record_N), name="epsilon_vector")
             
             mynet = Model(self.x_nchw, self.det_anno, self.prev_asscoia, self.h_state_init_1, is_training=True, data_format='NCHW', keep_prob=0.5)
@@ -60,14 +64,14 @@ class Network:
             with tf.name_scope('Cost'):
                 
                 coord_loss = self.coord_loss_function(coord_flow, self.track_y, name='coord_loss')
-                self.epsilon_loss , self.associa_loss = self.association_loss(epsilon_flow, associa_flow, self.current_asscoia_y, self.epsilon_vector_y, name='track_loss')
+                self.epsilon_loss, self.target_associa_loss, self.input_associa_loss = self.association_loss(epsilon_flow, associa_flow, self.current_asscoia_y, self.epsilon_vector_y, name='track_loss')
                 
                 # self.epsilon_loss = tf.Print(self.epsilon_loss,[self.epsilon_loss], message="epsilon_loss:")
                 # self.associa_loss = tf.Print(self.associa_loss,[self.associa_loss], message="associa_loss:")
                 
                 reg_losses = tf.get_collection(tf.GraphKeys.REGULARIZATION_LOSSES)
                 
-                self.total_loss = tf.add_n([coord_loss + self.epsilon_loss + self.associa_loss ] + reg_losses)
+                self.total_loss = tf.add_n([coord_loss + self.epsilon_loss + self.target_associa_loss + self.input_associa_loss ] + reg_losses)
                 # self.total_loss = tf.add_n(reg_losses)
                 
                 tf.summary.scalar("total_loss", self.total_loss)
@@ -76,10 +80,10 @@ class Network:
             with tf.name_scope('Optimizer'):
                 self.global_step = tf.Variable(0, name='global_step', trainable=False)
                 #optimizer = tf.train.GradientDescentOptimizer(FLAGS.lrate)
-                optimizer = tf.train.AdamOptimizer(FLAGS.lrate)
+                self.optimizer = tf.train.AdamOptimizer(FLAGS.lrate, epsilon=0.01)
                 # optimizer = tf.train.MomentumOptimizer(FLAGS.lrate, 0.9, use_nesterov=True)
                 # optimizer = tf.train.RMSPropOptimizer(FLAGS.lrate)
-                self.train_step = slim.learning.create_train_op(self.total_loss, optimizer, self.global_step,
+                self.train_step = slim.learning.create_train_op(self.total_loss, self.optimizer, self.global_step,
                                                                 aggregation_method=tf.AggregationMethod.EXPERIMENTAL_TREE)
             self.summary_op = tf.summary.merge_all()
             self.saver = tf.train.Saver(max_to_keep=None)
@@ -230,57 +234,31 @@ class Network:
     def association_loss(self, epsilon_flow, associa_flow, current_asscoia_y, epsilon_vector_y, name='track_loss'):
 
         with tf.name_scope('track_loss'):
-        
-            # tensors = tf.reshape(bbox_tensor,(-1,self.cell_size,self.cell_size,self.boxes_per_cell,5))
-            # predict_confidence = tf.reduce_max(tensors[:,:,:,:,0], 3, keep_dims=True) 
-            # track_match_predict = tf.reshape(tracking_tensor,(-1, self.cell_size, self.cell_size, self.cell_size*self.cell_size+1))
-            
-            # label_tensor = tf.reshape(label_y,(-1,self.cell_size,self.cell_size,5+self.cell_size*self.cell_size+1))
-            # label_confidence = tf.expand_dims(label_tensor[:,:,:,0], axis=3)
-            # track_match_label = label_tensor[:, :, :, 5:]
-            # track_match_label *= tf.expand_dims(label_tensor[:,:,:,0],3)
-            
-            # predict_noobject_prob = tf.ones_like(
-                    # predict_confidence, dtype=tf.float32) - predict_confidence
-            # predict_track_tran = tf.concat([predict_noobject_prob, track_match_predict], axis=3)
-            
-            # label_noobject_prob = tf.ones_like(
-                    # label_confidence, dtype=tf.float32) - label_confidence
-            # label_track_tran = tf.concat([label_noobject_prob, track_match_label], axis=3)
-            
-            # cross_entropy = tf.nn.softmax_cross_entropy_with_logits_v2( logits=predict_track_tran, labels=label_track_tran, name='xentropy')
-            
-            # track_loss = tf.reduce_mean(tf.reduce_sum(cross_entropy, reduction_indices=[1, 2]), name='xentropy_mean')
-            #------------------------------------------------------------------------------
-            
-            # label_tensor = tf.reshape(label_y,(-1,self.cell_size,self.cell_size, 5+self.cell_size*self.cell_size+1))
-            
-            # track_trackmask = tf.reshape(track_tensor,(-1,self.cell_size,self.cell_size, self.cell_size*self.cell_size+1))
-            
-            # label_confidence = tf.reshape(label_tensor[..., 0],
-                                # [-1, self.cell_size, self.cell_size, 1])
-                                
-            # label_trackmask = label_tensor[..., 5:]
-            
-            # track_delta = label_confidence * (track_trackmask - label_trackmask)
-            
-            # track_loss = tf.reduce_mean(tf.reduce_sum(tf.square(track_delta), reduction_indices=[1, 2, 3])) * self.track_scale
-            
-            
-            # tf.summary.scalar("track_loss", track_loss)
-            #-----------------------------------------------------------------------------------
-            
+
             #### Binary Cross Entropy
-            epsilon_loss = tf.reduce_mean(-tf.reduce_sum(epsilon_vector_y * tf.log(epsilon_flow) + (1-epsilon_vector_y)*tf.log(1-epsilon_flow), reduction_indices=[1])) * self.cell_size
+            epsilon_loss = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(labels=epsilon_vector_y, logits=epsilon_flow)) * self.cell_size
             
-            asscoia_y = tf.reshape(current_asscoia_y,(-1, self.record_N ,self.cell_size * self.cell_size+1))
-            associa_loss = tf.reduce_mean(-tf.reduce_sum(asscoia_y * tf.log(associa_flow), reduction_indices=[1,2]))
+            _asscoia_y = tf.reshape(current_asscoia_y,(-1, self.record_N+1 ,self.cell_size * self.cell_size+1))
+            asscoia_y = _asscoia_y[:,:-1,:]
+            
+            target_associa_loss = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(labels=asscoia_y, logits=associa_flow))
+
+            _asscoia_y_tran = tf.transpose(_asscoia_y, perm=[0,2,1])
+            associa_flow_tran = tf.transpose(associa_flow, perm=[0,2,1])
+            
+            associa_flow_tran = tf.concat([associa_flow_tran, tf.expand_dims(_asscoia_y_tran[:,:,-1], -1)], 2)
+            
+            input_associa_loss = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(labels=_asscoia_y_tran[:,:-1,:], logits=associa_flow_tran[:,:-1,:]))
+            
+            # associa_loss = tf.reduce_mean(-tf.reduce_sum(asscoia_y * tf.log(associa_flow), reduction_indices=[1,2]))
             
             tf.summary.scalar("epsilon_loss", epsilon_loss)
             
-            tf.summary.scalar("associa_loss", associa_loss)
+            tf.summary.scalar("target_associa_loss", target_associa_loss)
             
-        return epsilon_loss , associa_loss
+            tf.summary.scalar("input_associa_loss", input_associa_loss)
+            
+        return epsilon_loss, target_associa_loss, input_associa_loss
     
     @staticmethod
     def print_model():

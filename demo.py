@@ -18,7 +18,9 @@ import argparse
 import re
 
 
-chkpt_file = "network/logs/model.ckpt-1000"
+chkpt_file = "network/logs/model.ckpt-100000"
+# chkpt_file = "./network/old_logs/ass_epsilon_version/model.ckpt-84000"
+
 # chkpt_file = "network/logs/old_logs/GRU_version/model.ckpt-40000"
 tf_pattern = "train_tf/MOT16-04-*"
 
@@ -267,7 +269,7 @@ def process_trackid_logits_and_draw(frame_idx, img, confidence, boxes, epsilon_f
     row_index_of_max_value_every_column = np.argmax(associa_prob, axis=0)
     print(row_index_of_max_value_every_column)
     print(column_index_of_max_value_every_row)
-    np.savetxt('numpy_out.txt', associa_prob, delimiter=',')   # X is an array
+    # np.savetxt('numpy_out.txt', associa_prob, delimiter=',')   # X is an array
     
     for i in range(cell_size):
         for j in range(cell_size):
@@ -390,7 +392,7 @@ def process_image(frame_idx, img, concat_img, frame_det, prev_asscoia_tensor, h_
     
     # sys.exit(0)
     
-    return img, associa_flow, h_state_1, record
+    return img, associa_flow.reshape(1, record_N*(cell_size*cell_size+1)) , h_state_1, record
 
 
 def encode_det(frame_idx, det_array, img):

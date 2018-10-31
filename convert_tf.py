@@ -31,9 +31,9 @@ def get_associa_gt(frame_idx, gt_array, alive_dict, tackid_grid_vector):
     
     rows = gt_array[mask]
 
-    ass_matrix = np.zeros((record_N,cell_size*cell_size+1),dtype=np.float32)
+    ass_matrix = np.zeros((record_N+1,cell_size*cell_size+1),dtype=np.float32)
     ass_matrix[:, -1] = 1
-    
+    ass_matrix[record_N, :] = 1
     
     e_vector = np.zeros((record_N),dtype=np.float32)
 
@@ -56,6 +56,7 @@ def get_associa_gt(frame_idx, gt_array, alive_dict, tackid_grid_vector):
             ass_matrix[true_id][-1] = 0
             # print(tackid_grid_vector[id][0], tackid_grid_vector[id][1])
             ass_matrix[true_id][tackid_grid_vector[id][0]*cell_size + tackid_grid_vector[id][1]] = 1
+            ass_matrix[record_N][tackid_grid_vector[id][0]*cell_size + tackid_grid_vector[id][1]] = 0
 
             # print("track: " + str(i))
     

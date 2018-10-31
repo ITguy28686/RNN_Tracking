@@ -1,10 +1,12 @@
 import tensorflow as tf
-from dataset import Reader
-from network.network import Network
 import numpy as np
 import tensorflow.contrib.slim as slim
-
 import config
+
+
+from dataset import Reader
+from network.network import Network
+
 
 FLAGS = tf.app.flags.FLAGS
 
@@ -25,7 +27,7 @@ class Learning:
         self.h_state_init_2 = np.zeros((self.max_batch_size,self.GRU_SIZE), np.float32)
         #self.cell_state_init = np.zeros(4096).reshape(1,4096).astype(np.float32)
         
-        self.prev_asscoia = np.zeros((self.max_batch_size, self.record_N * (self.cell_size * self.cell_size+1)), np.float32)
+        # self.prev_asscoia = np.zeros((self.max_batch_size, self.record_N * (self.cell_size * self.cell_size+1)), np.float32)
 
         self.is_training = True
         self._evaluate_train()
@@ -35,13 +37,14 @@ class Learning:
             _, total_loss, summary, global_step = sess.run(
                 [self.net.train_step, self.net.total_loss, self.net.summary_op, self.net.global_step],
                 feed_dict=self.next_example(), options=run_options, run_metadata=run_metadata)
-            self.train_writer.add_run_metadata(run_metadata, 'step{}'.format(global_step), global_step)
+            
             print('Loss for the %d step: %s' % (global_step ,total_loss))
             
         else:
             _, total_loss, summary, global_step = sess.run(
                 [self.net.train_step, self.net.total_loss, self.net.summary_op, self.net.global_step],
                 feed_dict=self.next_example())
+            
             print('Loss for the %d step: %s' % (global_step ,total_loss))
                 
                 
@@ -51,20 +54,20 @@ class Learning:
     def next_example(self):
         frame_gt_batch, frame_x_batch, ass_matrix_gt_batch, e_vector_gt_batch, file_name = self.train_reader.get_random_example()
         
-        batch_size = len(frame_gt_batch)
+        # batch_size = len(frame_gt_batch)
         # print("batch: " + str(batch_size))
         
-        prev_asscoia = self.prev_asscoia
+        # prev_asscoia = self.prev_asscoia
         
-        if batch_size > 1:
-            prev_asscoia[1:batch_size] = ass_matrix_gt_batch[:batch_size-1]
+        # if batch_size > 1:
+            # prev_asscoia[1:batch_size] = ass_matrix_gt_batch[:batch_size-1]
         # sys.exit(0)
         
         
         
         return {self.net.x: frame_x_batch,
                 self.net.det_anno: frame_gt_batch,
-                self.net.prev_asscoia: prev_asscoia[:batch_size],
+                # self.net.prev_asscoia: prev_asscoia[:batch_size],
                 self.net.track_y: frame_gt_batch,
                 self.net.current_asscoia_y: ass_matrix_gt_batch,
                 self.net.epsilon_vector_y: e_vector_gt_batch,
@@ -141,7 +144,7 @@ def get_init_fn(checkpoint_path, exclusions, ignore_missing_vars=True):
 
     # TODO(sguada) variables.filter_variables()
     variables_to_restore = []
-    for var in slim.get_trainable_variables():
+    for var in tf.global_variables():
         # print("VAR: " + str(var))
         excluded = False
         for exclusion in exclusions:

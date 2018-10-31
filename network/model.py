@@ -56,7 +56,8 @@ class Model:
             
             with tf.variable_scope("det_anno"):
                 # det_anno = tf.reshape(det_anno, (-1, self.cell_size * self.cell_size * 5))
-                tensor_flow = tf.concat([tensor_flow, det_anno, prev_asscoia], axis = 1)
+                # tensor_flow = tf.concat([tensor_flow, det_anno, prev_asscoia], axis = 1)
+                tensor_flow = tf.concat([tensor_flow, det_anno], axis = 1)
                 tensor_flow = slim.fully_connected(tensor_flow, self.GRU_SIZE*2, scope='anno_fc' )
                 tensor_flow = slim.fully_connected(tensor_flow, self.GRU_SIZE, scope='anno_fc2' )
                 
@@ -73,27 +74,38 @@ class Model:
             # coord_flow = slim.fully_connected(tensor_flow, 512, scope='fc_11-2_coord')
             tensor_flow = slim.fully_connected(tensor_flow, self.GRU_SIZE, scope='fc_13')
             
-            associa_input = tensor_flow
+            tensor_flow_2 = tensor_flow
             
             tensor_flow = slim.dropout(
                     tensor_flow, keep_prob=keep_prob, is_training=self.is_training,
                     scope='dropout_coord')
             coord_flow = slim.fully_connected(tensor_flow, self.cell_size*self.cell_size*self.boxes_per_cell*5, scope='coord_final', activation_fn=None)
             
-            epsilon_flow = slim.fully_connected(tensor_flow, self.record_N, scope='epsilon_final', activation_fn=None)
-            epsilon_flow = tf.clip_by_value(epsilon_flow, 0.0001, 0.9999)
+            # epsilon_flow = slim.fully_connected(tensor_flow, self.record_N, scope='epsilon_final', activation_fn=tf.nn.sigmoid)
+            # epsilon_flow = tf.clip_by_value(epsilon_flow, 0.0001, 0.9999)
             
             
             with tf.variable_scope("associa_gru"):
-                
-                associa_input = tf.reshape(associa_input, ( -1, 1, associa_input.get_shape()[1]))
+                associa_input = tf.reshape(tensor_flow_2, ( -1, 1, tensor_flow_2.get_shape()[1]))
                 associa_input = tf.tile(associa_input, [1, self.record_N, 1])
-                ass_hstate = tuple([tf.zeros((associa_input.get_shape()[0], self.GRU_SIZE))])
+                ass_hstate = tuple([tf.zeros((tf.shape(associa_input)[0], self.GRU_SIZE))])
                 associa_flow, rnn_associa_state = self._gru_layer(input = associa_input, num_units = self.GRU_SIZE, h_state_init = ass_hstate, scope='GRU_associa')
                 
                 # associa_flow = tf.transpose(associa_flow, perm=[1,0,2])
-                associa_flow = slim.fully_connected(associa_flow, self.cell_size * self.cell_size + 1, scope='associa_softmax', activation_fn= tf.nn.softmax )
-                associa_flow = tf.clip_by_value(associa_flow, 0.0001, 0.9999)
+                associa_flow = slim.fully_connected(associa_flow, self.cell_size * self.cell_size + 1, scope='associa_fc', activation_fn = tf.nn.sigmoid)
+                # associa_flow = tf.clip_by_value(associa_flow, 0.0001, 0.9999)
+                
+            with tf.variable_scope("eplsilon_birth_death"):
+                epsilon_flow = slim.fully_connected(tensor_flow_2, self.cell_size*self.cell_size*8 , scope='epsilon_fc1')
+                epsilon_flow = tf.reshape(epsilon_flow,(-1, self.cell_size*self.cell_size, 8))
+                epsilon_flow = tf.matmul(associa_flow[:, :,:-1], epsilon_flow)
+                epsilon_flow = tf.reshape(epsilon_flow,(-1, self.record_N * 8))
+                epsilon_flow = slim.fully_connected(epsilon_flow, self.record_N * 16 , scope='epsilon_fc2')
+                epsilon_flow = slim.dropout(
+                    epsilon_flow, keep_prob=keep_prob, is_training=self.is_training,
+                    scope='dropout_epsilon')
+                epsilon_flow = slim.fully_connected(epsilon_flow, self.record_N , scope='epsilon_final', activation_fn= None)
+                
 
             return coord_flow, epsilon_flow, associa_flow, rnn_coord_state, rnn_associa_state
             

@@ -92,7 +92,7 @@ class Model:
                 associa_flow, rnn_associa_state = self._gru_layer(input = associa_input, num_units = self.GRU_SIZE, h_state_init = ass_hstate, scope='GRU_associa')
                 
                 # associa_flow = tf.transpose(associa_flow, perm=[1,0,2])
-                associa_flow = slim.fully_connected(associa_flow, self.cell_size * self.cell_size + 1, scope='associa_fc', activation_fn = tf.nn.sigmoid)
+                associa_flow = slim.fully_connected(associa_flow, self.cell_size * self.cell_size + 1, scope='associa_fc', activation_fn = None)
                 # associa_flow = tf.clip_by_value(associa_flow, 0.0001, 0.9999)
                 
             with tf.variable_scope("eplsilon_birth_death"):

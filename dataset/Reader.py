@@ -4,6 +4,7 @@ import config
 import numpy as np
 import tensorflow as tf
 import cv2
+import sys
 
 FLAGS = tf.app.flags.FLAGS
 
@@ -53,6 +54,8 @@ class Reader:
         frame_gt = example.features.feature['frame_gt'].float_list.value
         
         ass_matrix_gt = example.features.feature['ass_matrix_gt'].float_list.value
+        # np.savetxt('numpy_out.txt', np.array(ass_matrix_gt).reshape(257,82), delimiter=',')
+        # sys.exit(0)
         
         e_vector_gt = example.features.feature['e_vector_gt'].float_list.value
         

@@ -69,8 +69,8 @@ def get_associa_gt(frame_idx, gt_array, alive_dict, tackid_grid_vector):
     # print(e_vector)
     # print('---------------\n')
     
-    # np.savetxt('numpy_out.txt', ass_matrix.astype(int), delimiter=',', fmt='%i')
-    # sys.exit(0)
+    np.savetxt('numpy_out.txt', ass_matrix.astype(int), delimiter=',', fmt='%i')
+    sys.exit(0)
     
     ass_matrix_gt = float_feature(ass_matrix.flatten().tolist())
     e_vector_gt = float_feature(e_vector.flatten().tolist())

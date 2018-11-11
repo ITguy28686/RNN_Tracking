@@ -18,8 +18,8 @@ import argparse
 import re
 
 
-chkpt_file = "network/logs/model.ckpt-100000"
-# chkpt_file = "./network/old_logs/ass_epsilon_version/model.ckpt-84000"
+# chkpt_file = "network/logs/model.ckpt-191000"
+chkpt_file = "./network/old_logs/ass_epsilon_version/model.ckpt-191000"
 
 # chkpt_file = "network/logs/old_logs/GRU_version/model.ckpt-40000"
 tf_pattern = "train_tf/MOT16-04-*"
@@ -364,7 +364,7 @@ def process_image(frame_idx, img, concat_img, frame_det, prev_asscoia_tensor, h_
     coord_flow, epsilon_flow, associa_flow, rnn_coord_state, rnn_associa_state = isess.run(
                                         [mynet.coord_flow, mynet.epsilon_flow, mynet.associa_flow, mynet.rnn_coord_state, mynet.rnn_associa_state],
                                           feed_dict={img_input: concat_img,
-                                                    prev_asscoia: prev_asscoia_tensor,
+                                                    # prev_asscoia: prev_asscoia_tensor,
                                                     det_anno: frame_det_tensor,
                                                     h_state_init_1: h_state_1
                                                     })

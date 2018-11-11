@@ -206,10 +206,10 @@ class Network:
                 object_mask, dtype=tf.float32) - object_mask
             
             object_loss = tf.reduce_mean(tf.reduce_sum(tf.square(object_mask * ( predict_confidence - label_confidence)),
-                                        reduction_indices=[1, 2, 3]), name='object_loss') * self.object_scale
+                                        reduction_indices=[1, 2, 3]), name='object_loss') 
                                         
             noobject_loss = tf.reduce_mean(tf.reduce_sum(tf.square(noobject_mask * predict_confidence),
-                                        reduction_indices=[1, 2, 3]), name='noobject_loss') * self.noobject_scale
+                                        reduction_indices=[1, 2, 3]), name='noobject_loss') 
                                         
             tf.summary.scalar(name + '/object_loss', object_loss)
             tf.summary.scalar(name + '/noobject_loss', noobject_loss)
@@ -236,19 +236,27 @@ class Network:
         with tf.name_scope('track_loss'):
 
             #### Binary Cross Entropy
-            epsilon_loss = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(labels=epsilon_vector_y, logits=epsilon_flow)) * self.cell_size
+            epsilon_loss = tf.reduce_mean(tf.reduce_sum(tf.nn.sigmoid_cross_entropy_with_logits(labels=epsilon_vector_y, logits=epsilon_flow), reduction_indices=[1])) * self.cell_size
             
-            _asscoia_y = tf.reshape(current_asscoia_y,(-1, self.record_N+1 ,self.cell_size * self.cell_size+1))
-            asscoia_y = _asscoia_y[:,:-1,:]
+            current_asscoia_y = tf.reshape(current_asscoia_y,(-1, self.record_N+1 ,self.cell_size * self.cell_size+1))
             
-            target_associa_loss = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(labels=asscoia_y, logits=associa_flow))
+            asscoia_y = current_asscoia_y[:,:-1,:]
+            
+            # mask_target_asscoia = tf.ones_like(asscoia_y[:, :, -1]) - asscoia_y[:, :, -1]
+            
+            target_associa_loss = tf.reduce_mean(tf.reduce_sum(tf.nn.softmax_cross_entropy_with_logits(labels=asscoia_y, logits=associa_flow) * epsilon_vector_y / tf.count_nonzero(epsilon_vector_y, [1],dtype=tf.float32, keepdims=True), reduction_indices=[1]))
+            # target_associa_loss = tf.Print(target_associa_loss, [tf.shape(associa_flow)], message= "target_associa shape:")
 
-            _asscoia_y_tran = tf.transpose(_asscoia_y, perm=[0,2,1])
+            _asscoia_y_tran = tf.transpose(current_asscoia_y, perm=[0,2,1])
             associa_flow_tran = tf.transpose(associa_flow, perm=[0,2,1])
             
             associa_flow_tran = tf.concat([associa_flow_tran, tf.expand_dims(_asscoia_y_tran[:,:,-1], -1)], 2)
             
-            input_associa_loss = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(labels=_asscoia_y_tran[:,:-1,:], logits=associa_flow_tran[:,:-1,:]))
+            mask_input_asscoia = tf.ones_like(_asscoia_y_tran[:,:-1,-1]) - _asscoia_y_tran[:,:-1,-1]
+            
+            input_associa_loss = tf.reduce_mean(tf.reduce_sum(tf.nn.softmax_cross_entropy_with_logits(labels=_asscoia_y_tran[:,:-1,:], logits=associa_flow_tran[:,:-1,:]) * mask_input_asscoia / tf.count_nonzero(mask_input_asscoia, [1],dtype=tf.float32, keepdims=True), reduction_indices=[1]))
+            # input_associa_loss = tf.Print(input_associa_loss, [associa_flow_tran[0,:,-1]], message= "input_associa:")
+            # print(input_associa_loss.get_shape())
             
             # associa_loss = tf.reduce_mean(-tf.reduce_sum(asscoia_y * tf.log(associa_flow), reduction_indices=[1,2]))
             
